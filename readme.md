@@ -48,7 +48,7 @@ The breakthrough was V3's auxiliary-loss-free routing — no more balancing tax.
 
 **An anti-pattern we caught** (real example):
 
-> DeepSeek-V3.2's Figure 1 had unlabeled performance bars. We guessed which benchmark each bar belonged to. 4 out of 5 were wrong. Independent QA caught it. **Tables have labels. Figures have artistic license. Always verify against Table text.**
+> Extracting data from Figures is risky — they have artistic license. We learned this the hard way: unlabeled bars led to 4/5 wrong attributions. **Always verify against Table text.**
 
 ---
 
@@ -76,7 +76,7 @@ Three pipelines, one system:
 ```
 31% first-pass QA rate  →  taught us to write hard numbers first
 0/3 reliability (claude) →  4/4 reliability (glm-5.1)
-1 critical misattribution caught  →  V3.2 Figure vs Table
+1 critical misattribution caught  →  Figure vs Table data extraction error
 ```
 
 ---
@@ -151,7 +151,7 @@ Built and validated through ingesting **23 DeepSeek research papers** (Jan 2024 
 | Source pages (stable) | 23 |
 | Concept pages | 11 |
 | First-pass QA rate | 31% → ~70% after "hard numbers first" rule |
-| Critical misattributions caught | 1 (V3.2 Figure vs Table) |
+| Critical misattributions caught | 1 (Figure vs Table data extraction) |
 | Sub-agent reliability (glm-5.1) | 4/4 = 100% |
 
 Coverage: architecture evolution (DeepSeek LLM → V4), reasoning (R1, GRPO), multimodal (VL, Janus family), specialized (Math, OCR, Prover).
