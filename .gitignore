@@ -1,0 +1,15 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+
+# Private data (users should add their own wiki content to .gitignore)
+raw/
+qa-reports/
+log.md
+log-archive/
+_state/
