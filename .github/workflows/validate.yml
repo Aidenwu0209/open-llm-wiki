@@ -35,6 +35,7 @@ jobs:
         run: |
           uv run python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
           uv run python scripts/wiki_search.py examples/minimal-vault "attention transformer" --limit 2
+          uv run python scripts/pdf_to_markdown.py --help
           uv run python scripts/wiki_writeback.py examples/minimal-vault \
             --target concepts/attention-mechanisms.md \
             --query "Why did attention become central?" \

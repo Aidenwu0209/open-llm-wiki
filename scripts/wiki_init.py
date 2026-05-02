@@ -11,7 +11,13 @@ from wiki_common import write_text
 
 
 DIRS = ["raw", "sources", "concepts", "drafts", "qa-reports", "templates", "_state", "log-archive"]
-RUNTIME_SCRIPTS = ["wiki_common.py", "wiki_lint.py", "wiki_search.py", "wiki_writeback.py"]
+RUNTIME_SCRIPTS = [
+    "pdf_to_markdown.py",
+    "wiki_common.py",
+    "wiki_lint.py",
+    "wiki_search.py",
+    "wiki_writeback.py",
+]
 
 
 def copy_file(src: Path, dst: Path, force: bool) -> None:

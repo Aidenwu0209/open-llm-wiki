@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Claude Code skill bundle and runtime for auditable, self-growing LLM wikis."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "requests>=2.33.1",
+]
 
 [dependency-groups]
 dev = [

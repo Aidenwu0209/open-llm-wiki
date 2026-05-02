@@ -42,6 +42,7 @@ The skills coordinate judgment. The runtime scripts handle repeatable checks:
 | Script | Purpose |
 | --- | --- |
 | `scripts/wiki_init.py` | initialize a portable personal/team vault |
+| `scripts/pdf_to_markdown.py` | convert PDFs to Markdown through a configurable layout-parsing API |
 | `scripts/wiki_lint.py` | verify structure, QA gates, links, index, logs, and stale claims |
 | `scripts/wiki_search.py` | local markdown search across source and concept pages |
 | `scripts/wiki_writeback.py` | generate or apply reviewable query-writeback diffs |
@@ -77,6 +78,19 @@ cp ~/papers/attention.pdf my-llm-wiki/raw/
 # Ingest this paper: my-llm-wiki/raw/attention.pdf
 ```
 
+For layout-heavy PDFs, convert to Markdown first with the project-local uv
+environment:
+
+```bash
+export OPEN_LLM_WIKI_LAYOUT_TOKEN="<token>"
+uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf \
+  --output my-llm-wiki/raw/attention_markdown
+```
+
+The token is read from the environment and must not be committed. Override the
+endpoint with `OPEN_LLM_WIKI_LAYOUT_API_URL` or `--api-url` when using a
+different layout-parsing service.
+
 Open `my-llm-wiki/` in [Obsidian](https://obsidian.md) if you want graph view,
 backlinks, and tag navigation.
 
@@ -90,6 +104,8 @@ backlinks, and tag navigation.
 - Lint is report-only by default.
 - Cloud OCR is optional and requires explicit configuration and user acceptance
   because document content may leave the local machine.
+- PDF-to-Markdown conversion sends document bytes to the configured layout
+  parsing API. Use it only for documents the user is allowed to process.
 - QA reports and contradiction reports are append-only audit records.
 
 ## Repository Layout

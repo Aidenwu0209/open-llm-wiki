@@ -81,7 +81,7 @@ important claim should cite a source page.
 
 ```text
 raw/source.pdf
-  -> raw/source_fulltext.txt
+  -> raw/source_fulltext.txt or raw/source_markdown/combined.md
   -> drafts/LLM-NNNN.md (status: draft)
   -> qa-reports/LLM-NNNN.md
   -> sources/LLM-NNNN.md (status: stable)
@@ -197,6 +197,7 @@ Allowed actions include:
 The vault may contain runtime scripts at `.open-llm-wiki/scripts/`:
 
 ```bash
+python .open-llm-wiki/scripts/pdf_to_markdown.py raw/source.pdf --output raw/source_markdown
 python .open-llm-wiki/scripts/wiki_lint.py . --fail-on p1
 python .open-llm-wiki/scripts/wiki_search.py . "query terms"
 python .open-llm-wiki/scripts/wiki_writeback.py . --target concepts/page.md --query "..." --body "..."

@@ -31,6 +31,7 @@ Skill 负责判断和协调；runtime 脚本负责可重复检查：
 | Script | 用途 |
 | --- | --- |
 | `scripts/wiki_init.py` | 初始化个人/团队 vault |
+| `scripts/pdf_to_markdown.py` | 通过可配置的 layout parsing API 将 PDF 转成 Markdown |
 | `scripts/wiki_lint.py` | 检查结构、QA、链接、index、log 和过时断言 |
 | `scripts/wiki_search.py` | 本地 markdown 搜索 |
 | `scripts/wiki_writeback.py` | 生成或应用可审阅 writeback diff |
@@ -89,6 +90,14 @@ bash -n setup.sh
 
 `uv` 会在项目内使用 `.venv/`，依赖固定在 `uv.lock`，不需要污染全局 Python 环境。
 validator 通过 `python -m skills_ref.cli` 调用，避免 Windows 严格应用控制策略拦截生成的 `agentskills.exe`。
+
+PDF 转 Markdown 需要把文档内容发送到配置的 layout parsing API。token 只从环境变量读取：
+
+```bash
+export OPEN_LLM_WIKI_LAYOUT_TOKEN="<token>"
+uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf \
+  --output my-llm-wiki/raw/attention_markdown
+```
 
 GitHub Actions 会在 push 和 pull request 时运行这些检查。
 

@@ -21,8 +21,11 @@ product is the behavior of the three skills in `skills/`:
 - Do not add unsupported frontmatter fields. Use `metadata` for versioning.
 - Basic use must not require API keys. Cloud OCR is optional and must be
   disclosed because document content may leave the local machine.
+- Do not commit `.env`, API tokens, generated parser output, or private source
+  documents.
 - Prefer runtime scripts for repeatable operations: `wiki_init.py`,
-  `wiki_lint.py`, `wiki_search.py`, `wiki_writeback.py`, and `wiki_eval.py`.
+  `pdf_to_markdown.py`, `wiki_lint.py`, `wiki_search.py`, `wiki_writeback.py`,
+  and `wiki_eval.py`.
 - `raw/` files are immutable evidence.
 - QA reports and contradiction reports are append-only.
 - Query writeback and lint are read-only by default.

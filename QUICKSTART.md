@@ -13,7 +13,8 @@ to other agents, but Claude Code is the default path.
 Optional:
 
 - PyMuPDF for local PDF parsing
-- A cloud OCR provider if you explicitly want OCR for layout-heavy documents
+- `OPEN_LLM_WIKI_LAYOUT_TOKEN` for cloud PDF-to-Markdown conversion of
+  layout-heavy documents
 
 ## Option A: Scripted Setup
 
@@ -101,6 +102,30 @@ Expected result:
 5. related concept pages and `index.md` are updated
 6. a contradiction report is recorded
 7. `log.md` records the operation
+
+## Convert PDF to Markdown
+
+For layout-heavy PDFs, use the project-local uv environment and keep the token
+outside the repository:
+
+```bash
+export OPEN_LLM_WIKI_LAYOUT_TOKEN="<token>"
+uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf \
+  --output my-llm-wiki/raw/attention_markdown
+```
+
+Useful options:
+
+```bash
+uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf --dry-run
+uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf --no-download-images
+uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf --api-url "$OPEN_LLM_WIKI_LAYOUT_API_URL"
+```
+
+This sends the PDF bytes to the configured layout-parsing API. Use it only for
+documents you are allowed to process externally. The output includes
+`combined.md`, per-document Markdown files, downloaded images when enabled, and
+`manifest.json`.
 
 ## Ask the Wiki
 

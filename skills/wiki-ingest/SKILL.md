@@ -19,6 +19,8 @@ or the vault:
 
 - `<repo>/scripts/wiki_lint.py`
 - `<vault>/.open-llm-wiki/scripts/wiki_lint.py`
+- `<repo>/scripts/pdf_to_markdown.py`
+- `<vault>/.open-llm-wiki/scripts/pdf_to_markdown.py`
 - `<repo>/scripts/wiki_search.py`
 - `<vault>/.open-llm-wiki/scripts/wiki_search.py`
 
@@ -65,8 +67,15 @@ Prefer a local parser. For PDFs, use PyMuPDF when available and write
 `raw/<slug>_fulltext.txt`. Record page count, character count, parser, and any
 extraction limitations in the draft.
 
-Use cloud OCR only for layout-sensitive sources under the configured service
-limits and only when the user accepts external processing.
+For layout-sensitive PDFs, use `pdf_to_markdown.py` when the user has configured
+`OPEN_LLM_WIKI_LAYOUT_TOKEN` and accepts external processing:
+
+```bash
+uv run python scripts/pdf_to_markdown.py "<pdf>" --output "<vault>/raw/<slug>_markdown"
+```
+
+Use cloud parsing only for sources under the configured service limits and only
+when the user accepts that document content leaves the local machine.
 
 ### 2. Allocate ID
 

@@ -61,3 +61,7 @@ fresh vault initialization:
 ```bash
 uv run python scripts/wiki_eval.py
 ```
+
+PDF-to-Markdown conversion is smoke-tested with `--help` in CI because the real
+API call requires a private token and sends document bytes to the configured
+layout-parsing endpoint.

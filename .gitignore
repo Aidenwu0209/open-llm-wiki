@@ -12,6 +12,11 @@ Thumbs.db
 __pycache__/
 *.py[cod]
 
+# Local secrets and generated outputs
+.env
+.env.*
+/output/
+
 # Private data (users should add their own wiki content to .gitignore)
 /raw/
 /qa-reports/
