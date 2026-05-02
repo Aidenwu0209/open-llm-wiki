@@ -10,7 +10,7 @@ deterministic semantic-growth tools, and reviewable writeback diffs.
 
 Inspired by [Andrej Karpathy's LLM Wiki concept](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f).
 
-[Quick start](QUICKSTART.md) | [Schema](SCHEMA.md) | [Examples](EXAMPLES.md) | [Showcase](SHOWCASE.md)
+[Quick start](QUICKSTART.md) | [Evaluation checklist](Checklist.md) | [Schema](SCHEMA.md) | [Examples](EXAMPLES.md) | [Showcase](SHOWCASE.md)
 
 ---
 
