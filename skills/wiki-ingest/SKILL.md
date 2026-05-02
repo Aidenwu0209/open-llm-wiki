@@ -25,7 +25,7 @@ or the vault:
 Run lint before and after ingest:
 
 ```bash
-python scripts/wiki_lint.py "<vault>" --fail-on p1
+uv run python scripts/wiki_lint.py "<vault>" --fail-on p1
 ```
 
 ## Safety Boundary

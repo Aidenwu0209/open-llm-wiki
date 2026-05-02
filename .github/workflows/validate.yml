@@ -19,24 +19,27 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
+      - name: Sync project environment
+        run: uv sync --dev --locked
+
       - name: Validate skills
         run: |
-          uvx --from skills-ref agentskills validate skills/wiki-ingest
-          uvx --from skills-ref agentskills validate skills/query-writeback
-          uvx --from skills-ref agentskills validate skills/wiki-lint
+          uv run python -m skills_ref.cli validate skills/wiki-ingest
+          uv run python -m skills_ref.cli validate skills/query-writeback
+          uv run python -m skills_ref.cli validate skills/wiki-lint
 
       - name: Run repository quality checks
-        run: python scripts/check_quality.py
+        run: uv run python scripts/check_quality.py
 
       - name: Run runtime commands
         run: |
-          python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
-          python scripts/wiki_search.py examples/minimal-vault "attention transformer" --limit 2
-          python scripts/wiki_writeback.py examples/minimal-vault \
+          uv run python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
+          uv run python scripts/wiki_search.py examples/minimal-vault "attention transformer" --limit 2
+          uv run python scripts/wiki_writeback.py examples/minimal-vault \
             --target concepts/attention-mechanisms.md \
             --query "Why did attention become central?" \
             --body "Attention created direct token-to-token interaction paths. [[LLM-0001]]"
-          python scripts/wiki_eval.py
+          uv run python scripts/wiki_eval.py
 
       - name: Check setup script syntax
         run: bash -n setup.sh

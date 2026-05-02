@@ -77,14 +77,18 @@ cp ~/papers/attention.pdf my-llm-wiki/raw/
 ## 质量验证
 
 ```bash
-uvx --from skills-ref agentskills validate skills/wiki-ingest
-uvx --from skills-ref agentskills validate skills/query-writeback
-uvx --from skills-ref agentskills validate skills/wiki-lint
-python scripts/check_quality.py
-python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
-python scripts/wiki_eval.py
+uv sync --dev
+uv run python -m skills_ref.cli validate skills/wiki-ingest
+uv run python -m skills_ref.cli validate skills/query-writeback
+uv run python -m skills_ref.cli validate skills/wiki-lint
+uv run python scripts/check_quality.py
+uv run python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
+uv run python scripts/wiki_eval.py
 bash -n setup.sh
 ```
+
+`uv` 会在项目内使用 `.venv/`，依赖固定在 `uv.lock`，不需要污染全局 Python 环境。
+validator 通过 `python -m skills_ref.cli` 调用，避免 Windows 严格应用控制策略拦截生成的 `agentskills.exe`。
 
 GitHub Actions 会在 push 和 pull request 时运行这些检查。
 

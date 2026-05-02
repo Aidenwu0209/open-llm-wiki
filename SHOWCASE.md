@@ -59,5 +59,5 @@ The runtime smoke test also verifies search, writeback proposal generation, and
 fresh vault initialization:
 
 ```bash
-python scripts/wiki_eval.py
+uv run python scripts/wiki_eval.py
 ```

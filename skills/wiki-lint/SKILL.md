@@ -17,7 +17,7 @@ problems. Default to report-only.
 Use the deterministic linter whenever available:
 
 ```bash
-python scripts/wiki_lint.py "<vault>" --fail-on p1
+uv run python scripts/wiki_lint.py "<vault>" --fail-on p1
 ```
 
 The script checks structure, frontmatter, QA gates, contradiction reports,

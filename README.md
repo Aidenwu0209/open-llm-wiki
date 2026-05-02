@@ -116,14 +116,21 @@ open-llm-wiki/
 This repository is designed to be checked automatically:
 
 ```bash
-uvx --from skills-ref agentskills validate skills/wiki-ingest
-uvx --from skills-ref agentskills validate skills/query-writeback
-uvx --from skills-ref agentskills validate skills/wiki-lint
-python scripts/check_quality.py
-python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
-python scripts/wiki_eval.py
+uv sync --dev
+uv run python -m skills_ref.cli validate skills/wiki-ingest
+uv run python -m skills_ref.cli validate skills/query-writeback
+uv run python -m skills_ref.cli validate skills/wiki-lint
+uv run python scripts/check_quality.py
+uv run python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
+uv run python scripts/wiki_eval.py
 bash -n setup.sh
 ```
+
+`uv` creates and uses the project-local `.venv/`; dependencies are locked in
+`uv.lock` and do not need to be installed into the global Python environment.
+The validator is invoked through `python -m skills_ref.cli` so Windows systems
+with strict application-control policies do not need to execute a generated
+`agentskills.exe` shim.
 
 GitHub Actions runs the same checks on push and pull request.
 

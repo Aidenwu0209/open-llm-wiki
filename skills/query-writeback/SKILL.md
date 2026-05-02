@@ -23,8 +23,8 @@ Use deterministic scripts when available:
 Example:
 
 ```bash
-python scripts/wiki_search.py "<vault>" "<query>" --limit 8
-python scripts/wiki_writeback.py "<vault>" --target concepts/<page>.md --query "<query>" --body-file <draft.md>
+uv run python scripts/wiki_search.py "<vault>" "<query>" --limit 8
+uv run python scripts/wiki_writeback.py "<vault>" --target concepts/<page>.md --query "<query>" --body-file <draft.md>
 ```
 
 ## Trigger Boundary

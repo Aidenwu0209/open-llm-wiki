@@ -155,11 +155,15 @@ Review the diff before applying. Add `--apply` only after approval.
 From the repo root:
 
 ```bash
-uvx --from skills-ref agentskills validate skills/wiki-ingest
-uvx --from skills-ref agentskills validate skills/query-writeback
-uvx --from skills-ref agentskills validate skills/wiki-lint
-python scripts/check_quality.py
-python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
-python scripts/wiki_eval.py
+uv sync --dev
+uv run python -m skills_ref.cli validate skills/wiki-ingest
+uv run python -m skills_ref.cli validate skills/query-writeback
+uv run python -m skills_ref.cli validate skills/wiki-lint
+uv run python scripts/check_quality.py
+uv run python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
+uv run python scripts/wiki_eval.py
 bash -n setup.sh
 ```
+
+The repo uses uv's project-local `.venv/` and `uv.lock`; no package needs to be
+installed into the global Python environment.

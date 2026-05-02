@@ -98,7 +98,9 @@ def check_docs() -> None:
         "EXAMPLES.md",
         "SHOWCASE.md",
         "PHILOSOPHY.md",
+        "pyproject.toml",
         "setup.sh",
+        "uv.lock",
         "scripts/wiki_common.py",
         "scripts/wiki_init.py",
         "scripts/wiki_lint.py",
@@ -114,7 +116,7 @@ def check_docs() -> None:
         fail("todo.md should not be published as stale project guidance")
 
     for path in ROOT.rglob("*"):
-        if path.is_dir() or ".git" in path.parts:
+        if path.is_dir() or ".git" in path.parts or ".venv" in path.parts:
             continue
         if path.suffix.lower() not in {".md", ".py", ".sh", ".yml", ".yaml", ".svg"}:
             continue
