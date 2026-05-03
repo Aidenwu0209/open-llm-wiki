@@ -305,11 +305,18 @@ def check_ingest_corpus_help() -> None:
         "log.md",
         "Resume behavior:",
         "--resume",
+        "--concepts-file",
     ]
     missing = [item for item in required if item not in result.stdout]
     if missing:
         print(result.stdout)
         fail(f"wiki_ingest_corpus.py --help missing expected guidance: {missing}")
+
+
+def check_ingest_corpus_boundary_usage() -> None:
+    text = read(ROOT / "scripts" / "wiki_ingest_corpus.py")
+    if "ensure_within" not in text:
+        fail("wiki_ingest_corpus.py must use ensure_within for vault write boundaries")
 
 
 def check_pdf_to_markdown_help() -> None:
@@ -466,6 +473,17 @@ def check_pdf_to_markdown_http_errors() -> None:
     finally:
         thread.join(timeout=5)
         server.server_close()
+
+
+def expect_command_failure(command: list[str], expected: str, message: str, cwd: Path = ROOT) -> str:
+    result = subprocess.run(command, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if result.returncode == 0:
+        print(result.stdout)
+        fail(message)
+    if expected not in result.stdout:
+        print(result.stdout)
+        fail(f"{message}; missing expected text {expected!r}")
+    return result.stdout
 
 
 def check_safety_boundaries() -> None:
@@ -638,6 +656,111 @@ def check_safety_boundaries() -> None:
         if "claim_id" in raw_claims_target.read_text(encoding="utf-8"):
             fail("claim extraction modified raw evidence through an unsafe output path")
 
+        semantic_vault = Path(tmp) / "semantic-vault"
+        shutil.copytree(vault, semantic_vault)
+        expect_command_failure(
+            [
+                sys.executable,
+                "scripts/wiki_semantic_qa.py",
+                str(semantic_vault),
+                "--write-report",
+                "--report",
+                str(Path(tmp) / "semantic-outside.md"),
+            ],
+            "semantic QA report must stay inside the vault",
+            "semantic QA accepted a report path outside the vault",
+        )
+
+        science_vault = Path(tmp) / "science-vault"
+        shutil.copytree(vault, science_vault)
+        expect_command_failure(
+            [
+                sys.executable,
+                "scripts/wiki_science_review.py",
+                str(science_vault),
+                "--write-report",
+                "--report",
+                str(Path(tmp) / "science-outside.md"),
+            ],
+            "science review report must stay inside the vault",
+            "science review accepted a report path outside the vault",
+        )
+
+        contradiction_vault = Path(tmp) / "contradiction-vault"
+        shutil.copytree(vault, contradiction_vault)
+        expect_command_failure(
+            [
+                sys.executable,
+                "scripts/wiki_contradictions.py",
+                str(contradiction_vault),
+                "--write-report",
+                "--report",
+                str(Path(tmp) / "contradictions-outside.md"),
+            ],
+            "contradiction report must stay inside the vault",
+            "contradiction scan accepted a report path outside the vault",
+        )
+
+        discovery_vault = Path(tmp) / "discovery-vault"
+        shutil.copytree(vault, discovery_vault)
+        expect_command_failure(
+            [
+                sys.executable,
+                "scripts/wiki_discover_sources.py",
+                str(discovery_vault),
+                "--registry",
+                str(Path(tmp) / "registry-outside.jsonl"),
+            ],
+            "discovery outputs must stay inside the vault",
+            "source discovery accepted a registry path outside the vault",
+        )
+        expect_command_failure(
+            [
+                sys.executable,
+                "scripts/wiki_discover_sources.py",
+                str(discovery_vault),
+                "--report",
+                str(Path(tmp) / "discovery-outside.md"),
+            ],
+            "discovery outputs must stay inside the vault",
+            "source discovery accepted a report path outside the vault",
+        )
+
+        writeback_outside_vault = Path(tmp) / "writeback-outside-vault"
+        shutil.copytree(vault, writeback_outside_vault)
+        expect_command_failure(
+            [
+                sys.executable,
+                "scripts/wiki_writeback.py",
+                str(writeback_outside_vault),
+                "--target",
+                "../outside.md",
+                "--query",
+                "unsafe writeback",
+                "--body",
+                "This should not be written. [[LLM-0001]]",
+                "--apply",
+            ],
+            "target must stay inside the vault",
+            "writeback accepted a target outside the vault",
+        )
+        expect_command_failure(
+            [
+                sys.executable,
+                "scripts/wiki_writeback.py",
+                str(writeback_outside_vault),
+                "--target",
+                "sources/LLM-0001.md",
+                "--query",
+                "unsafe writeback",
+                "--body",
+                "This should not be written. [[LLM-0001]]",
+                "--apply",
+            ],
+            "writeback target must be under concepts/",
+            "writeback accepted a non-concepts target",
+        )
+
 
 def check_pdf_corpus_report_short_outputs() -> None:
     with tempfile.TemporaryDirectory() as tmp:
@@ -667,6 +790,26 @@ def check_pdf_corpus_report_short_outputs() -> None:
         if "short_files: 1" not in result.stdout:
             print(result.stdout)
             fail("corpus report did not identify the short combined Markdown output")
+        alias_result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/pdf_corpus_report.py",
+                str(raw_dir),
+                "--fail-on-suspicious",
+                "--min-bytes",
+                "100",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if alias_result.returncode == 0:
+            print(alias_result.stdout)
+            fail("corpus report accepted a short output through --fail-on-suspicious")
+        if "short_files: 1" not in alias_result.stdout:
+            print(alias_result.stdout)
+            fail("corpus report --min-bytes alias did not identify the short combined Markdown output")
 
 
 def check_pdf_corpus_report_parser_warnings() -> None:
@@ -770,6 +913,72 @@ def check_corpus_ingest_fresh_vault() -> None:
             fail("fresh vault corpus ingest did not create sources/LLM-0001.md")
 
 
+def check_corpus_ingest_generic_concepts() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("generic concept vault initialization failed")
+        concepts_file = Path(tmp) / "concepts.json"
+        concepts_file.write_text(
+            json.dumps(
+                {
+                    "sequence-transduction": [
+                        "Sequence Transduction",
+                        "How models map input sequences into output sequences.",
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        markdown_dir = vault / "raw" / "Attention_Is_All_You_Need_1706.03762_markdown"
+        markdown_dir.mkdir(parents=True)
+        (vault / "raw" / "Attention_Is_All_You_Need_1706.03762.pdf").write_bytes(b"%PDF-1.4 fake")
+        (markdown_dir / "combined.md").write_text(
+            "# Attention Is All You Need\n\n"
+            "Abstract\n"
+            "The Transformer relies on multi-head self-attention for sequence transduction and language modeling. "
+            "It reports a WMT 2014 EN-DE BLEU score of 27.3 for the base model against recurrent and convolutional baselines.\n\n"
+            "1 Introduction\n"
+            "Self-attention connects all tokens directly and removes recurrent sequence computation.\n",
+            encoding="utf-8",
+        )
+        ingest_result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/wiki_ingest_corpus.py",
+                str(vault),
+                "--today",
+                "2026-05-03",
+                "--concepts-file",
+                str(concepts_file),
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if ingest_result.returncode != 0:
+            print(ingest_result.stdout)
+            fail("generic corpus ingest failed")
+        source_text = read(vault / "sources" / "LLM-0001.md")
+        if "deepseek-family" in source_text:
+            print(source_text)
+            fail("generic corpus ingest incorrectly fell back to the DeepSeek concept")
+        for concept in ["attention-mechanisms", "transformer-architectures", "sequence-transduction"]:
+            if not (vault / "concepts" / f"{concept}.md").exists():
+                print(ingest_result.stdout)
+                fail(f"generic corpus ingest did not create expected concept: {concept}")
+
+
 def check_corpus_ingest_resume_continues() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -847,6 +1056,7 @@ def main() -> None:
     check_setup_python_probe()
     check_setup_runtime()
     check_ingest_corpus_help()
+    check_ingest_corpus_boundary_usage()
     check_pdf_to_markdown_help()
     run_runtime_checks()
     check_pdf_to_markdown_http_errors()
@@ -855,6 +1065,7 @@ def main() -> None:
     check_pdf_corpus_report_parser_warnings()
     check_source_discovery_arxiv_filename()
     check_corpus_ingest_fresh_vault()
+    check_corpus_ingest_generic_concepts()
     check_corpus_ingest_resume_continues()
     print("quality checks passed")
 

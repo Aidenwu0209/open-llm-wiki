@@ -41,6 +41,53 @@ def replace_with_symlink(path: Path, target: Path) -> bool:
     return True
 
 
+def check_individual_pipeline_stages(vault: Path, tmp: str) -> None:
+    stage_vault = Path(tmp) / "stage-vault"
+    shutil.copytree(vault, stage_vault)
+
+    run([sys.executable, "scripts/wiki_claims.py", str(stage_vault)])
+    claims_path = stage_vault / "claims" / "claims.jsonl"
+    claims = load_jsonl(claims_path)
+    if not claims:
+        raise SystemExit("individual stage eval produced no claims")
+    if not all(isinstance(row, dict) and row.get("claim_id") for row in claims):
+        raise SystemExit("individual stage eval found invalid claim JSONL rows")
+
+    run([sys.executable, "scripts/wiki_normalize_metrics.py", str(stage_vault), "--in-place"])
+    normalized_path = stage_vault / "claims" / "normalized-claims.jsonl"
+    if not normalized_path.exists():
+        raise SystemExit("individual stage eval did not write normalized-claims.jsonl")
+    if not (stage_vault / "claims" / "metric-normalization-report.md").exists():
+        raise SystemExit("individual stage eval did not write metric normalization report")
+    normalized = load_jsonl(normalized_path)
+    if not any(row.get("claim_type") == "metric" and "metric_key" in row for row in normalized):
+        raise SystemExit("individual stage eval did not normalize metric claims")
+
+    run([sys.executable, "scripts/wiki_semantic_qa.py", str(stage_vault), "--fail-on", "p1"])
+
+    science_output = run([sys.executable, "scripts/wiki_science_review.py", str(stage_vault), "--format", "json"])
+    science = json.loads(science_output)
+    if int(science.get("review_items", 0)) <= 0:
+        raise SystemExit("individual stage eval science review returned a fake PASS with no review items")
+
+    contradiction_output = run([sys.executable, "scripts/wiki_contradictions.py", str(stage_vault), "--format", "json"])
+    contradiction = json.loads(contradiction_output)
+    if contradiction.get("conflicts") or contradiction.get("markers"):
+        raise SystemExit("individual stage eval found unexpected confirmed contradiction markers")
+    contradiction_markdown = run([sys.executable, "scripts/wiki_contradictions.py", str(stage_vault)])
+    if "NO_CONFIRMED_CONTRADICTION" not in contradiction_markdown:
+        raise SystemExit("individual stage eval contradiction report did not state NO_CONFIRMED_CONTRADICTION")
+
+    concept_preview = run([sys.executable, "scripts/wiki_concept_revision.py", str(stage_vault)])
+    if "- changed: 0" in concept_preview or "- changed: " not in concept_preview:
+        raise SystemExit("individual stage eval concept revision preview did not report changed concepts")
+
+    run([sys.executable, "scripts/wiki_queue.py", str(stage_vault), "plan", "--cadence", "now"])
+    queue_rows = load_jsonl(stage_vault / "_state" / "growth-queue.jsonl")
+    if not any(row.get("status") == "pending" for row in queue_rows):
+        raise SystemExit("individual stage eval queue planning did not create pending tasks")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run runtime smoke evaluations.")
     parser.add_argument("--vault", type=Path, default=ROOT / "examples" / "minimal-vault")
@@ -68,6 +115,8 @@ def main() -> int:
         raise SystemExit("writeback eval did not produce a reviewable proposal")
 
     with tempfile.TemporaryDirectory() as tmp:
+        check_individual_pipeline_stages(vault, tmp)
+
         growth_vault = Path(tmp) / "growth-vault"
         shutil.copytree(vault, growth_vault)
         run(

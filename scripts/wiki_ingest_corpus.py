@@ -4,16 +4,22 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from wiki_common import read_text, write_text
+from wiki_common import ensure_within, read_text, write_text
 
 
 CONCEPTS = {
+    "llm-research": ("LLM Research", "How language model research contributes reusable knowledge across architectures, data, training, evaluation, and deployment."),
+    "attention-mechanisms": ("Attention Mechanisms", "How attention mechanisms model relationships between tokens, modalities, or retrieved context."),
+    "transformer-architectures": ("Transformer Architectures", "How Transformer-style architectures organize attention, feed-forward blocks, normalization, and scaling."),
+    "language-modeling": ("Language Modeling", "How models learn to predict, generate, translate, or reason with language."),
+    "evaluation-benchmarks": ("Evaluation Benchmarks", "How benchmarks and protocols measure model behavior and compare systems."),
     "deepseek-family": ("DeepSeek Model Family", "How DeepSeek systems evolve across language, code, math, multimodal, and reasoning work."),
     "code-generation": ("Code Generation", "How code-oriented training and evaluation improve programming and reasoning capability."),
     "mathematical-reasoning": ("Mathematical Reasoning", "How models learn, verify, and improve mathematical problem solving."),
@@ -101,6 +107,9 @@ def derive_tags(title: str, name: str, abstract: str) -> list[str]:
     hay = f"{title} {name} {abstract}".lower()
     tags = ["deepseek"] if "deepseek" in hay else []
     rules = [
+        ("attention", ["attention", "self-attention", "multi-head"]),
+        ("transformer", ["transformer", "encoder", "decoder"]),
+        ("language-model", ["language model", "language modeling", "translation", "sequence transduction"]),
         ("code", ["coder", "code", "programming", "humaneval"]),
         ("math", ["math", "aime", "mathematical"]),
         ("reasoning", ["reasoning", "r1", "grpo", "reinforcement"]),
@@ -119,8 +128,34 @@ def derive_tags(title: str, name: str, abstract: str) -> list[str]:
     return sorted(dict.fromkeys(tags))[:6]
 
 
-def concepts_for_tags(tags: list[str], title: str) -> list[str]:
+def load_concept_definitions(path: Path | None) -> dict[str, tuple[str, str]]:
+    if path is None:
+        return dict(CONCEPTS)
+    data = json.loads(read_text(path))
+    if not isinstance(data, dict):
+        raise SystemExit("--concepts-file must contain a JSON object")
+    concepts = dict(CONCEPTS)
+    for concept_id, value in data.items():
+        if isinstance(value, list) and len(value) >= 2:
+            title, question = str(value[0]), str(value[1])
+        elif isinstance(value, dict):
+            title = str(value.get("title", concept_id.replace("-", " ").title()))
+            question = str(value.get("question", value.get("description", "")))
+        else:
+            raise SystemExit(f"invalid concept definition for {concept_id!r}")
+        if not title or not question:
+            raise SystemExit(f"concept definition for {concept_id!r} requires title and question")
+        concepts[str(concept_id)] = (title, question)
+    return concepts
+
+
+def concepts_for_tags(tags: list[str], title: str, abstract: str, concept_defs: dict[str, tuple[str, str]]) -> list[str]:
     mapping = {
+        "attention": "attention-mechanisms",
+        "transformer": "transformer-architectures",
+        "language-model": "language-modeling",
+        "translation": "language-modeling",
+        "evaluation": "evaluation-benchmarks",
         "deepseek": "deepseek-family",
         "code": "code-generation",
         "math": "mathematical-reasoning",
@@ -132,12 +167,17 @@ def concepts_for_tags(tags: list[str], title: str) -> list[str]:
         "vision-generation": "vision-generation",
         "memory": "memory-architectures",
         "training-data": "training-data",
-        "evaluation": "agentic-evaluation",
     }
-    concepts = [mapping[tag] for tag in tags if tag in mapping]
-    if "Janus" in title and "vision-generation" not in concepts:
+    concepts = [mapping[tag] for tag in tags if tag in mapping and mapping[tag] in concept_defs]
+    if "Janus" in title and "vision-generation" in concept_defs and "vision-generation" not in concepts:
         concepts.append("vision-generation")
-    return sorted(dict.fromkeys(concepts or ["deepseek-family"]))
+    hay = f"{title} {abstract}".lower()
+    for concept_id, (concept_title, _question) in concept_defs.items():
+        terms = [concept_id.replace("-", " "), concept_title.lower()]
+        if any(term and term in hay for term in terms):
+            concepts.append(concept_id)
+    fallback = "llm-research" if "llm-research" in concept_defs else sorted(concept_defs)[0]
+    return sorted(dict.fromkeys(concepts or [fallback]))
 
 
 def evidence_rows(lines: list[str], raw_rel: str) -> list[tuple[str, str, str]]:
@@ -177,7 +217,7 @@ def evidence_rows(lines: list[str], raw_rel: str) -> list[tuple[str, str, str]]:
     return rows
 
 
-def build_item(vault: Path, source_id: str, combined: Path, today: str) -> Item:
+def build_item(vault: Path, source_id: str, combined: Path, today: str, concept_defs: dict[str, tuple[str, str]]) -> Item:
     raw_rel = combined.relative_to(vault).as_posix()
     stem = combined.parent.name.removesuffix("_markdown")
     pdf = vault / "raw" / f"{stem}.pdf"
@@ -196,7 +236,7 @@ def build_item(vault: Path, source_id: str, combined: Path, today: str) -> Item:
         arxiv=arxiv,
         created=created_from_arxiv(arxiv, today),
         tags=tags,
-        concepts=concepts_for_tags(tags, title),
+        concepts=concepts_for_tags(tags, title, abstract, concept_defs),
         abstract=abstract,
         evidence=evidence_rows(lines, raw_rel),
         opening_line=opening_line,
@@ -311,8 +351,8 @@ def contradiction_text(item: Item, today: str) -> str:
 """
 
 
-def concept_text(concept_id: str, items: list[Item], today: str) -> str:
-    title, question = CONCEPTS[concept_id]
+def concept_text(concept_id: str, items: list[Item], today: str, concept_defs: dict[str, tuple[str, str]]) -> str:
+    title, question = concept_defs[concept_id]
     bullets = "\n".join(f"- [[{item.source_id}]] contributes evidence from *{item.title}*." for item in items)
     sources = "\n".join(f"- [[{item.source_id}|{item.title}]] - source page for this concept" for item in items)
     return f"""---
@@ -356,7 +396,7 @@ def merge_concept_page(path: Path, items: list[Item]) -> None:
         write_text(path, text.rstrip() + "\n" + "\n".join(additions) + "\n")
 
 
-def merge_index(vault: Path, items: list[Item], concept_items: dict[str, list[Item]]) -> None:
+def merge_index(vault: Path, items: list[Item], concept_items: dict[str, list[Item]], concept_defs: dict[str, tuple[str, str]]) -> None:
     index_path = vault / "index.md"
     text = read_text(index_path) if index_path.exists() else ""
     source_rows = [
@@ -365,7 +405,7 @@ def merge_index(vault: Path, items: list[Item], concept_items: dict[str, list[It
         if f"[[{item.source_id}]]" not in text
     ]
     concept_rows = [
-        f"| [[{concept_id}]] | {CONCEPTS[concept_id][1].replace('|', '/')} | {', '.join(f'[[{item.source_id}]]' for item in concept_sources)} |"
+        f"| [[{concept_id}]] | {concept_defs[concept_id][1].replace('|', '/')} | {', '.join(f'[[{item.source_id}]]' for item in concept_sources)} |"
         for concept_id, concept_sources in sorted(concept_items.items())
         if f"[[{concept_id}]]" not in text
     ]
@@ -401,17 +441,25 @@ def main() -> int:
     parser.add_argument("--resume", action="store_true", help="Skip existing source IDs instead of refusing existing output.")
     parser.add_argument("--force-empty", action="store_true", help="Overwrite generated source/concept/QA outputs.")
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--concepts-file", type=Path, help="Optional JSON object mapping concept ids to [title, question] definitions.")
     args = parser.parse_args()
 
     vault = args.vault.resolve()
-    for folder in ["raw", "sources", "concepts", "drafts", "qa-reports", "_state"]:
-        (vault / folder).mkdir(parents=True, exist_ok=True)
+    concept_defs = load_concept_definitions(args.concepts_file)
+    dirs = {
+        folder: ensure_within(vault / folder, vault, f"{folder} directory must stay inside the vault")
+        for folder in ["raw", "sources", "concepts", "drafts", "qa-reports", "_state"]
+    }
+    for folder_path in dirs.values():
+        folder_path.mkdir(parents=True, exist_ok=True)
     if not args.resume and not args.force_empty and any(
         any((vault / folder).glob("*.md")) for folder in ["sources", "concepts", "qa-reports"]
     ):
         raise SystemExit("refusing to overwrite existing wiki pages; use --resume or --force-empty")
 
-    combined_files = sorted((vault / "raw").glob("*_markdown/combined.md"))
+    combined_files = sorted(dirs["raw"].glob("*_markdown/combined.md"))
+    for combined in combined_files:
+        ensure_within(combined, dirs["raw"], "combined Markdown input must stay under raw/")
     if args.limit:
         combined_files = combined_files[: args.limit]
     if not combined_files:
@@ -421,40 +469,43 @@ def main() -> int:
     concept_items: dict[str, list[Item]] = defaultdict(list)
     for offset, combined in enumerate(combined_files, 1):
         source_id = f"LLM-{offset:04d}"
-        source_path = vault / "sources" / f"{source_id}.md"
+        source_path = ensure_within(dirs["sources"] / f"{source_id}.md", dirs["sources"], "source output must stay under sources/")
         if args.resume and source_path.exists():
             continue
-        item = build_item(vault, source_id, combined, args.today)
+        item = build_item(vault, source_id, combined, args.today, concept_defs)
         items.append(item)
         draft = source_text(item, "draft", args.today)
-        draft_path = vault / "drafts" / f"{source_id}.md"
+        draft_path = ensure_within(dirs["drafts"] / f"{source_id}.md", dirs["drafts"], "draft output must stay under drafts/")
         write_text(draft_path, draft)
         passed, qa = qa_text(item, draft, args.today)
-        write_text(vault / "qa-reports" / f"{source_id}.md", qa)
+        write_text(ensure_within(dirs["qa-reports"] / f"{source_id}.md", dirs["qa-reports"], "QA output must stay under qa-reports/"), qa)
         if passed:
             write_text(source_path, source_text(item, "stable", args.today))
             draft_path.unlink(missing_ok=True)
-            write_text(vault / "qa-reports" / f"{source_id}-contradiction.md", contradiction_text(item, args.today))
+            write_text(
+                ensure_within(dirs["qa-reports"] / f"{source_id}-contradiction.md", dirs["qa-reports"], "QA output must stay under qa-reports/"),
+                contradiction_text(item, args.today),
+            )
             for concept in item.concepts:
                 concept_items[concept].append(item)
 
     for concept_id, concept_sources in sorted(concept_items.items()):
-        concept_path = vault / "concepts" / f"{concept_id}.md"
+        concept_path = ensure_within(dirs["concepts"] / f"{concept_id}.md", dirs["concepts"], "concept output must stay under concepts/")
         if args.resume and concept_path.exists():
             merge_concept_page(concept_path, concept_sources)
         else:
-            write_text(concept_path, concept_text(concept_id, concept_sources, args.today))
+            write_text(concept_path, concept_text(concept_id, concept_sources, args.today, concept_defs))
 
     source_rows = "\n".join(f"| [[{item.source_id}]] | {item.title.replace('|', '/')} | {', '.join(item.tags)} |" for item in items)
     concept_rows = "\n".join(
-        f"| [[{concept_id}]] | {CONCEPTS[concept_id][1].replace('|', '/')} | {', '.join(f'[[{item.source_id}]]' for item in concept_sources)} |"
+        f"| [[{concept_id}]] | {concept_defs[concept_id][1].replace('|', '/')} | {', '.join(f'[[{item.source_id}]]' for item in concept_sources)} |"
         for concept_id, concept_sources in sorted(concept_items.items())
     )
     if args.resume and (vault / "index.md").exists():
-        merge_index(vault, items, concept_items)
+        merge_index(vault, items, concept_items, concept_defs)
     else:
         write_text(
-            vault / "index.md",
+            ensure_within(vault / "index.md", vault, "index output must stay inside the vault"),
             "# LLM Wiki Index\n\n## Sources\n| ID | Title | Tags |\n| --- | --- | --- |\n"
             + source_rows
             + "\n\n## Concepts\n| Concept | Key Question | Sources |\n| --- | --- | --- |\n"
@@ -463,17 +514,18 @@ def main() -> int:
         )
 
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    log_lines = [read_text(vault / "log.md").rstrip() if (vault / "log.md").exists() else "# Wiki Log"]
+    log_path = ensure_within(vault / "log.md", vault, "log output must stay inside the vault")
+    log_lines = [read_text(log_path).rstrip() if log_path.exists() else "# Wiki Log"]
     for item in items:
         log_lines.append(f"[{stamp}] publish | sources/{item.source_id}.md | corpus-ingest | {item.title}")
         log_lines.append(f"[{stamp}] contradiction-check | qa-reports/{item.source_id}-contradiction.md | corpus-ingest | no confirmed contradiction")
-    write_text(vault / "log.md", "\n".join(log_lines).rstrip() + "\n")
-    next_id = len(list((vault / "sources").glob("LLM-*.md"))) + 1
-    write_text(vault / "_state" / "id-counter.md", f"# ID Counter\nnext: {next_id}\n")
+    write_text(log_path, "\n".join(log_lines).rstrip() + "\n")
+    next_id = len(list(dirs["sources"].glob("LLM-*.md"))) + 1
+    write_text(ensure_within(dirs["_state"] / "id-counter.md", dirs["_state"], "state output must stay under _state/"), f"# ID Counter\nnext: {next_id}\n")
 
     print(f"ingested_sources={len(items)}")
-    print(f"published_sources={len(list((vault / 'sources').glob('LLM-*.md')))}")
-    print(f"concepts={len(list((vault / 'concepts').glob('*.md')))}")
+    print(f"published_sources={len(list(dirs['sources'].glob('LLM-*.md')))}")
+    print(f"concepts={len(list(dirs['concepts'].glob('*.md')))}")
     return 0
 
 

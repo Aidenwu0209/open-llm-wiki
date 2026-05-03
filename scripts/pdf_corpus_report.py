@@ -80,7 +80,14 @@ def main() -> int:
     parser.add_argument("--combined-name", default="combined.md")
     parser.add_argument("--expect-count", type=int)
     parser.add_argument("--semantic-term", action="append", default=[])
-    parser.add_argument("--min-combined-bytes", type=int, default=200)
+    parser.add_argument(
+        "--min-combined-bytes",
+        "--min-bytes",
+        dest="min_combined_bytes",
+        type=int,
+        default=100,
+        help="Flag combined Markdown outputs smaller than this many bytes.",
+    )
     parser.add_argument("--fail-on-missing", action="store_true")
     parser.add_argument("--fail-on-parser-warnings", action="store_true")
     parser.add_argument("--fail-on-short", action="store_true")
@@ -142,8 +149,8 @@ def main() -> int:
         failures.append("parser warnings found")
     if args.fail_on_short and short:
         failures.append("suspiciously short combined Markdown outputs found")
-    if args.fail_on_suspicious and suspicious:
-        failures.append("suspicious text markers found")
+    if args.fail_on_suspicious and (suspicious or short):
+        failures.append("suspicious text markers or suspiciously short outputs found")
     if args.semantic_term and semantic != len(combined):
         failures.append("not every combined Markdown file matched the semantic terms")
 
