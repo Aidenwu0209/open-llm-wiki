@@ -1,8 +1,12 @@
 # open-llm-wiki
 
 [![GitHub Actions: Validate](https://img.shields.io/github/actions/workflow/status/AIwork4me/open-llm-wiki/validate.yml?branch=main&label=GitHub%20Actions%3A%20Validate)](https://github.com/AIwork4me/open-llm-wiki/actions/workflows/validate.yml)
-
-**GitHub Actions: Validate passed on main.**
+[![License: MIT](https://img.shields.io/github/license/AIwork4me/open-llm-wiki)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
+[![uv](https://img.shields.io/badge/env-uv-4B32C3)](https://docs.astral.sh/uv/)
+[![Claude Code Skill](https://img.shields.io/badge/Claude%20Code-Skill-6B46C1)](skills/)
+[![QA Checklist](https://img.shields.io/badge/QA%20Checklist-ready-brightgreen)](Checklist.md)
+[![Last Commit](https://img.shields.io/github/last-commit/AIwork4me/open-llm-wiki)](https://github.com/AIwork4me/open-llm-wiki/commits/main)
 
 [Chinese README](README.zh.md)
 
