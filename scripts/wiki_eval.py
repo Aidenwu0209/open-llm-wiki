@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
@@ -70,6 +71,62 @@ def main() -> int:
         test_vault = Path(tmp) / "vault"
         run([sys.executable, "scripts/wiki_init.py", str(test_vault), "--repo-root", str(ROOT)])
         run([sys.executable, "scripts/wiki_lint.py", str(test_vault), "--fail-on", "p1"])
+
+        contradiction_vault = Path(tmp) / "contradiction-vault"
+        (contradiction_vault / "claims").mkdir(parents=True)
+        rows = [
+            {
+                "claim_id": "claim-a",
+                "source_id": "LLM-0001",
+                "claim_type": "metric",
+                "predicate": "Accuracy",
+                "object": "not parsed",
+                "value": None,
+                "unit": "",
+                "metric_key": "accuracy",
+                "normalized_value": 10.0,
+                "normalized_unit": "score",
+                "unit_family": "score",
+                "concepts": ["evals"],
+            },
+            {
+                "claim_id": "claim-b",
+                "source_id": "LLM-0002",
+                "claim_type": "metric",
+                "predicate": "Accuracy",
+                "object": "not parsed",
+                "value": None,
+                "unit": "",
+                "metric_key": "accuracy",
+                "normalized_value": 20.0,
+                "normalized_unit": "score",
+                "unit_family": "score",
+                "concepts": ["evals"],
+            },
+        ]
+        (contradiction_vault / "claims" / "claims.jsonl").write_text(
+            "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+            encoding="utf-8",
+        )
+        contradiction_result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/wiki_contradictions.py",
+                str(contradiction_vault),
+                "--format",
+                "json",
+                "--fail-on-candidate",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if contradiction_result.returncode == 0:
+            raise SystemExit("contradiction eval did not fail on normalized-value conflict")
+        conflicts = json.loads(contradiction_result.stdout)["conflicts"]
+        if not conflicts:
+            raise SystemExit("contradiction eval did not report normalized-value conflict")
 
     print("runtime eval passed")
     return 0

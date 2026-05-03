@@ -27,7 +27,10 @@ def normalize_predicate(text: str) -> str:
 def numeric_conflicts(claims: list[dict[str, object]], tolerance: float) -> list[dict[str, object]]:
     groups: dict[tuple[str, str, str], list[dict[str, object]]] = defaultdict(list)
     for claim in claims:
-        if claim.get("claim_type") != "metric" or claim.get("value") is None:
+        if (
+            claim.get("claim_type") != "metric"
+            or (claim.get("normalized_value") is None and claim.get("value") is None)
+        ):
             continue
         predicate = str(claim.get("metric_key") or normalize_predicate(str(claim.get("predicate", ""))))
         unit = str(claim.get("normalized_unit") or claim.get("unit", "")).lower()
