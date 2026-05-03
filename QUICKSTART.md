@@ -86,6 +86,14 @@ Create `my-llm-wiki/claims/claims.jsonl`:
 touch my-llm-wiki/claims/claims.jsonl
 ```
 
+Create required state JSONL files:
+
+```bash
+touch my-llm-wiki/_state/growth-queue.jsonl
+touch my-llm-wiki/_state/source-registry.jsonl
+touch my-llm-wiki/_state/science-review-queue.jsonl
+```
+
 ## Ingest Your First Paper
 
 Copy a paper into `raw/`:
