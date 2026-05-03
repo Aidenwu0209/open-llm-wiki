@@ -345,6 +345,41 @@ This concept helps connect individual source pages into reusable wiki knowledge.
 """
 
 
+def merge_concept_page(path: Path, items: list[Item]) -> None:
+    text = read_text(path)
+    additions = [
+        f"- [[{item.source_id}|{item.title}]] - source page for this concept"
+        for item in items
+        if f"[[{item.source_id}" not in text
+    ]
+    if additions:
+        write_text(path, text.rstrip() + "\n" + "\n".join(additions) + "\n")
+
+
+def merge_index(vault: Path, items: list[Item], concept_items: dict[str, list[Item]]) -> None:
+    index_path = vault / "index.md"
+    text = read_text(index_path) if index_path.exists() else ""
+    source_rows = [
+        f"| [[{item.source_id}]] | {item.title.replace('|', '/')} | {', '.join(item.tags)} |"
+        for item in items
+        if f"[[{item.source_id}]]" not in text
+    ]
+    concept_rows = [
+        f"| [[{concept_id}]] | {CONCEPTS[concept_id][1].replace('|', '/')} | {', '.join(f'[[{item.source_id}]]' for item in concept_sources)} |"
+        for concept_id, concept_sources in sorted(concept_items.items())
+        if f"[[{concept_id}]]" not in text
+    ]
+    if source_rows:
+        marker = "\n## Concepts\n"
+        if marker in text:
+            text = text.replace(marker, "\n".join(source_rows) + "\n" + marker, 1)
+        else:
+            text = text.rstrip() + "\n\n" + "\n".join(source_rows)
+    if concept_rows:
+        text = text.rstrip() + "\n" + "\n".join(concept_rows)
+    write_text(index_path, text.rstrip() + "\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ingest raw/*_markdown/combined.md files into source pages.")
     parser.add_argument("vault", type=Path)
@@ -358,9 +393,6 @@ def main() -> int:
     for folder in ["raw", "sources", "concepts", "drafts", "qa-reports", "_state"]:
         (vault / folder).mkdir(parents=True, exist_ok=True)
     existing_sources = sorted((vault / "sources").glob("LLM-*.md"))
-    if args.resume and existing_sources:
-        print(f"existing_sources={len(existing_sources)}; corpus ingest skipped in resume mode")
-        return 0
     if not args.resume and not args.force_empty and any((vault / folder).glob("*.md") for folder in ["sources", "concepts", "qa-reports"]):
         raise SystemExit("refusing to overwrite existing wiki pages; use --resume or --force-empty")
 
@@ -392,21 +424,28 @@ def main() -> int:
                 concept_items[concept].append(item)
 
     for concept_id, concept_sources in sorted(concept_items.items()):
-        write_text(vault / "concepts" / f"{concept_id}.md", concept_text(concept_id, concept_sources, args.today))
+        concept_path = vault / "concepts" / f"{concept_id}.md"
+        if args.resume and concept_path.exists():
+            merge_concept_page(concept_path, concept_sources)
+        else:
+            write_text(concept_path, concept_text(concept_id, concept_sources, args.today))
 
     source_rows = "\n".join(f"| [[{item.source_id}]] | {item.title.replace('|', '/')} | {', '.join(item.tags)} |" for item in items)
     concept_rows = "\n".join(
         f"| [[{concept_id}]] | {CONCEPTS[concept_id][1].replace('|', '/')} | {', '.join(f'[[{item.source_id}]]' for item in concept_sources)} |"
         for concept_id, concept_sources in sorted(concept_items.items())
     )
-    write_text(
-        vault / "index.md",
-        "# LLM Wiki Index\n\n## Sources\n| ID | Title | Tags |\n| --- | --- | --- |\n"
-        + source_rows
-        + "\n\n## Concepts\n| Concept | Key Question | Sources |\n| --- | --- | --- |\n"
-        + concept_rows
-        + "\n",
-    )
+    if args.resume and (vault / "index.md").exists():
+        merge_index(vault, items, concept_items)
+    else:
+        write_text(
+            vault / "index.md",
+            "# LLM Wiki Index\n\n## Sources\n| ID | Title | Tags |\n| --- | --- | --- |\n"
+            + source_rows
+            + "\n\n## Concepts\n| Concept | Key Question | Sources |\n| --- | --- | --- |\n"
+            + concept_rows
+            + "\n",
+        )
 
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     log_lines = [read_text(vault / "log.md").rstrip() if (vault / "log.md").exists() else "# Wiki Log"]
@@ -414,7 +453,8 @@ def main() -> int:
         log_lines.append(f"[{stamp}] publish | sources/{item.source_id}.md | corpus-ingest | {item.title}")
         log_lines.append(f"[{stamp}] contradiction-check | qa-reports/{item.source_id}-contradiction.md | corpus-ingest | no confirmed contradiction")
     write_text(vault / "log.md", "\n".join(log_lines).rstrip() + "\n")
-    write_text(vault / "_state" / "id-counter.md", f"# ID Counter\nnext: {len(items) + 1}\n")
+    next_id = len(list((vault / "sources").glob("LLM-*.md"))) + 1
+    write_text(vault / "_state" / "id-counter.md", f"# ID Counter\nnext: {next_id}\n")
 
     print(f"ingested_sources={len(items)}")
     print(f"published_sources={len(list((vault / 'sources').glob('LLM-*.md')))}")

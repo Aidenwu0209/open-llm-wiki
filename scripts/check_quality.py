@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -178,6 +179,32 @@ def check_minimal_vault() -> None:
             fail(f"minimal vault index missing {link}")
 
 
+def check_claim_extraction() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "minimal-vault"
+        shutil.copytree(ROOT / "examples" / "minimal-vault", vault)
+        result = subprocess.run(
+            [sys.executable, "scripts/wiki_claims.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode != 0:
+            print(result.stdout)
+            fail("claim extraction failed on minimal vault")
+
+        rows = [json.loads(line) for line in read(vault / "claims" / "claims.jsonl").splitlines() if line.strip()]
+        if not rows:
+            fail("claim extraction produced no claims")
+        for row in rows:
+            if row.get("claim_type") != "metric":
+                continue
+            evidence = str(row.get("evidence", ""))
+            if not evidence.startswith("sources/LLM-0001.md#Key Data"):
+                fail("metric claim evidence must point back to a source page anchor")
+
+
 def check_setup_script() -> None:
     text = read(ROOT / "setup.sh")
     if ".claude/skills" not in text:
@@ -320,6 +347,31 @@ def check_safety_boundaries() -> None:
         if "must stay inside the vault" not in result.stdout:
             print(result.stdout)
             fail("normalization boundary failure did not explain the vault constraint")
+
+        outside_claims = Path(tmp) / "outside-claims.jsonl"
+        outside_claims.write_text(read(vault / "claims" / "claims.jsonl"), encoding="utf-8")
+        original_claims = read(outside_claims)
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/wiki_normalize_metrics.py",
+                str(vault),
+                "--claims",
+                str(outside_claims),
+                "--in-place",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode == 0:
+            fail("normalization accepted an in-place claims path outside the vault")
+        if "must stay inside the vault" not in result.stdout:
+            print(result.stdout)
+            fail("normalization in-place boundary failure did not explain the vault constraint")
+        if read(outside_claims) != original_claims:
+            fail("normalization modified an in-place claims path outside the vault")
 
         writeback_vault = Path(tmp) / "writeback-vault"
         shutil.copytree(vault, writeback_vault)
@@ -468,10 +520,109 @@ def check_pdf_corpus_report_parser_warnings() -> None:
             fail("corpus report did not identify parser warnings")
 
 
+def check_source_discovery_arxiv_filename() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("source discovery test vault initialization failed")
+        (vault / "raw" / "DeepSeek_Test_2401.00001.pdf").write_bytes(b"%PDF-1.4 fake")
+        result = subprocess.run(
+            [sys.executable, "scripts/wiki_discover_sources.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode != 0:
+            print(result.stdout)
+            fail("source discovery arxiv filename test failed")
+        registry = (vault / "_state" / "source-registry.jsonl").read_text(encoding="utf-8")
+        if '"arxiv": "2401.00001"' not in registry:
+            print(registry)
+            fail("source discovery did not extract arXiv ID from filename")
+
+
+def check_corpus_ingest_resume_continues() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("resume test vault initialization failed")
+        for name in ["DeepSeek_A_2401.00001", "DeepSeek_B_2402.00002"]:
+            markdown_dir = vault / "raw" / f"{name}_markdown"
+            markdown_dir.mkdir(parents=True)
+            (vault / "raw" / f"{name}.pdf").write_bytes(b"%PDF-1.4 fake")
+            (markdown_dir / "combined.md").write_text(
+                f"# {name}\n\n"
+                "Abstract\n"
+                f"{name} uses 2B parameters and 1.5B training tokens for code and math benchmarks. "
+                "HumanEval score is 75% against a 60% baseline and MATH score is 62% across 500 samples.\n",
+                encoding="utf-8",
+            )
+        first = subprocess.run(
+            [
+                sys.executable,
+                "scripts/wiki_ingest_corpus.py",
+                str(vault),
+                "--today",
+                "2026-05-03",
+                "--force-empty",
+                "--limit",
+                "1",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if first.returncode != 0:
+            print(first.stdout)
+            fail("initial partial corpus ingest failed")
+        resumed = subprocess.run(
+            [sys.executable, "scripts/wiki_ingest_corpus.py", str(vault), "--today", "2026-05-03", "--resume"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if resumed.returncode != 0:
+            print(resumed.stdout)
+            fail("resume corpus ingest failed")
+        if not (vault / "sources" / "LLM-0002.md").exists():
+            print(resumed.stdout)
+            fail("resume corpus ingest did not continue to LLM-0002")
+        lint = subprocess.run(
+            [sys.executable, "scripts/wiki_lint.py", str(vault), "--fail-on", "p1"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if lint.returncode != 0:
+            print(lint.stdout)
+            fail("resumed corpus vault failed p1 lint")
+
+
 def main() -> None:
     check_skills()
     check_docs()
     check_minimal_vault()
+    check_claim_extraction()
     check_setup_script()
     check_pdf_to_markdown_help()
     run_runtime_checks()
@@ -479,6 +630,8 @@ def main() -> None:
     check_safety_boundaries()
     check_pdf_corpus_report_short_outputs()
     check_pdf_corpus_report_parser_warnings()
+    check_source_discovery_arxiv_filename()
+    check_corpus_ingest_resume_continues()
     print("quality checks passed")
 
 

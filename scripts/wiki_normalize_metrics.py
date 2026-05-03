@@ -30,6 +30,13 @@ def clean_key(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def descriptive_object_key(text: str) -> str:
+    key = clean_key(text)
+    if re.fullmatch(r"[0-9% ]+", key):
+        return ""
+    return key
+
+
 def baseline_key(text: str) -> str:
     lowered = clean_key(text)
     if not lowered or lowered in {"as stated in source", "not applicable", "none"}:
@@ -96,7 +103,7 @@ def normalize_claim(claim: dict[str, object]) -> dict[str, object]:
     object_text = str(claim.get("object", ""))
     family = metric_family(predicate, unit, object_text)
     norm_unit = normalize_unit(unit, family)
-    claim["metric_key"] = clean_key(predicate) or clean_key(object_text) or "reported numeric claim"
+    claim["metric_key"] = clean_key(predicate) or descriptive_object_key(object_text) or "reported numeric claim"
     claim["unit_family"] = family
     claim["normalized_unit"] = norm_unit
     claim["normalized_value"] = normalized_value(claim.get("value"), unit, family)
@@ -123,7 +130,10 @@ def normalization_warnings(claim: dict[str, object]) -> list[str]:
         warnings.append("missing_normalized_value")
     if not claim.get("metric_key") or claim.get("metric_key") == "reported numeric claim":
         warnings.append("generic_metric_name")
-    if not claim.get("baseline_key") and str(claim.get("baseline", "")).lower() not in {"", "not applicable"}:
+    baseline = str(claim.get("baseline", "")).strip().lower()
+    if not baseline:
+        warnings.append("missing_baseline")
+    elif not claim.get("baseline_key") and baseline != "not applicable":
         warnings.append("baseline_not_normalized")
     return warnings
 
@@ -165,6 +175,8 @@ def main() -> int:
     claims_path = (args.claims or vault / "claims" / "claims.jsonl").resolve()
     output = ensure_within(args.output or vault / "claims" / "normalized-claims.jsonl", vault, "normalization outputs must stay inside the vault")
     report_path = ensure_within(args.report or vault / "claims" / "metric-normalization-report.md", vault, "normalization outputs must stay inside the vault")
+    if args.in_place:
+        claims_path = ensure_within(claims_path, vault, "normalization in-place claims path must stay inside the vault")
     rows = [normalize_claim(dict(row)) for row in load_claims(claims_path)]
     write_jsonl(output, rows)
     if args.in_place:

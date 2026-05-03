@@ -51,12 +51,39 @@ def parse_table_rows(block: str) -> list[list[str]]:
 
 
 def parse_value(value: str) -> tuple[float | None, str]:
-    match = NUMBER_RE.search(value.replace(",", ""))
-    if not match:
+    normalized = value.replace(",", "")
+    matches = list(NUMBER_RE.finditer(normalized))
+    if len(matches) != 1:
+        return None, ""
+    match = matches[0]
+    prefix = normalized[: match.start()].strip().lower()
+    suffix = normalized[match.end() :].strip()
+    if prefix not in {"", "about", "approx", "approx.", "approximately", "~"} or suffix:
         return None, ""
     number = float(match.group(1))
     unit = match.group(2) or ""
     return number, unit
+
+
+def has_numeric_text(value: str) -> bool:
+    return NUMBER_RE.search(value.replace(",", "")) is not None
+
+
+def needs_metric_review(raw_value: str, evidence: str, numeric: float | None) -> bool:
+    return (
+        "not available" in evidence.lower()
+        or not evidence
+        or (numeric is None and has_numeric_text(raw_value))
+    )
+
+
+def source_section_anchor(relpath: str, heading: str, evidence: str) -> str:
+    clean = normalize_space(evidence)
+    if not clean:
+        return ""
+    if clean.startswith(("sources/", "raw/")):
+        return clean
+    return f"{relpath}#{heading}"
 
 
 def concept_links(body: str, concept_names: set[str]) -> list[str]:
@@ -101,6 +128,7 @@ def metric_claims(source_id: str, title: str, body: str, concepts: list[str], re
         metric, raw_value, baseline, evidence = row[:4]
         numeric, unit = parse_value(raw_value)
         claim_id = f"claim-{short_hash(source_id + metric + raw_value + evidence)}"
+        anchor = source_section_anchor(relpath, "Key Data", evidence)
         claims.append(
             {
                 "claim_id": claim_id,
@@ -114,10 +142,10 @@ def metric_claims(source_id: str, title: str, body: str, concepts: list[str], re
                 "value": numeric,
                 "unit": unit,
                 "baseline": baseline,
-                "evidence": evidence,
+                "evidence": anchor,
                 "concepts": concepts,
                 "confidence": 0.82 if evidence else 0.55,
-                "needs_review": "not available" in evidence.lower() or not evidence,
+                "needs_review": needs_metric_review(raw_value, evidence, numeric),
             }
         )
     return claims
