@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -229,9 +230,46 @@ def check_safety_boundaries() -> None:
         )
         if result.returncode == 0:
             fail("normalization accepted an output path outside the vault")
-        if "must stay inside the vault" not in result.stdout:
+        if "under claims/" not in result.stdout:
             print(result.stdout)
-            fail("normalization boundary failure did not explain the vault constraint")
+            fail("normalization boundary failure did not explain the claims/ constraint")
+
+        normalize_vault = Path(tmp) / "normalize-vault"
+        shutil.copytree(vault, normalize_vault)
+        raw_target = normalize_vault / "raw" / "evil.md"
+        raw_target.write_text("# Raw evidence placeholder\n", encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, "scripts/wiki_claims.py", str(normalize_vault)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode != 0:
+            print(result.stdout)
+            fail("failed to prepare claims for normalization boundary check")
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/wiki_normalize_metrics.py",
+                str(normalize_vault),
+                "--output",
+                str(raw_target),
+                "--report",
+                str(normalize_vault / "claims" / "metric-normalization-report.md"),
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode == 0:
+            fail("normalization accepted an output path outside claims/")
+        if "under claims/" not in result.stdout:
+            print(result.stdout)
+            fail("normalization output boundary failure did not explain the claims/ constraint")
+        if "claim_id" in raw_target.read_text(encoding="utf-8"):
+            fail("normalization modified raw evidence through an unsafe output path")
 
 
 def main() -> None:

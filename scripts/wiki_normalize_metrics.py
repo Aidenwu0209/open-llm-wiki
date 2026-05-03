@@ -163,8 +163,16 @@ def main() -> int:
 
     vault = args.vault.resolve()
     claims_path = (args.claims or vault / "claims" / "claims.jsonl").resolve()
-    output = ensure_within(args.output or vault / "claims" / "normalized-claims.jsonl", vault, "normalization outputs must stay inside the vault")
-    report_path = ensure_within(args.report or vault / "claims" / "metric-normalization-report.md", vault, "normalization outputs must stay inside the vault")
+    output = ensure_within(
+        args.output or vault / "claims" / "normalized-claims.jsonl",
+        vault / "claims",
+        "normalization output must stay under claims/",
+    )
+    report_path = ensure_within(
+        args.report or vault / "claims" / "metric-normalization-report.md",
+        vault / "claims",
+        "normalization report must stay under claims/",
+    )
     rows = [normalize_claim(dict(row)) for row in load_claims(claims_path)]
     write_jsonl(output, rows)
     if args.in_place:
