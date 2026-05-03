@@ -209,6 +209,18 @@ def run_runtime_checks() -> None:
             print(result.stdout)
             fail(f"runtime check failed: {' '.join(command)}")
 
+    concept_help = subprocess.run(
+        [sys.executable, "scripts/wiki_concept_revision.py", "--help"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if "preview mode" not in concept_help.stdout or "without writing" not in concept_help.stdout:
+        fail("concept revision help must document preview mode")
+    if "Write updated concept pages and log entries" not in concept_help.stdout:
+        fail("concept revision help must document apply mode")
+
 
 def check_safety_boundaries() -> None:
     vault = ROOT / "examples" / "minimal-vault"

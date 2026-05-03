@@ -99,7 +99,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Update concept pages from normalized claims.")
     parser.add_argument("vault", type=Path)
     parser.add_argument("--claims", type=Path, help="Defaults to <vault>/claims/claims.jsonl.")
-    parser.add_argument("--apply", action="store_true")
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Write updated concept pages and log entries. Omit for preview mode, which reports changes without writing files.",
+    )
     parser.add_argument("--limit", type=int, default=0, help="Maximum concept pages to process; 0 means all.")
     parser.add_argument("--include-review-required", action="store_true", help="Include claims that have not passed second-pass scientific review.")
     args = parser.parse_args()
