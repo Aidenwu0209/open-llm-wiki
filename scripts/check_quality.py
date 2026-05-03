@@ -3,10 +3,14 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 
@@ -184,6 +188,34 @@ def check_setup_script() -> None:
         fail("setup.sh must clean temp directory with trap")
 
 
+def check_pdf_to_markdown_help() -> None:
+    result = subprocess.run(
+        [sys.executable, "scripts/pdf_to_markdown.py", "--help"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if result.returncode != 0:
+        print(result.stdout)
+        fail("pdf_to_markdown.py --help failed")
+    required = [
+        "API settings:",
+        "OPEN_LLM_WIKI_LAYOUT_TOKEN",
+        "AI_STUDIO_LAYOUT_TOKEN",
+        "OPEN_LLM_WIKI_LAYOUT_API_URL",
+        "Output behavior:",
+        "doc_*.md",
+        "combined Markdown",
+        "manifest.json",
+        "--dry-run",
+    ]
+    missing = [item for item in required if item not in result.stdout]
+    if missing:
+        print(result.stdout)
+        fail(f"pdf_to_markdown.py --help missing expected guidance: {missing}")
+
+
 def run_runtime_checks() -> None:
     commands = [
         [sys.executable, "scripts/wiki_lint.py", "examples/minimal-vault", "--fail-on", "p1"],
@@ -210,6 +242,62 @@ def run_runtime_checks() -> None:
             fail(f"runtime check failed: {' '.join(command)}")
 
 
+def check_pdf_to_markdown_http_errors() -> None:
+    class FailingHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(b"boom")
+
+        def log_message(self, *args: object) -> None:
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), FailingHandler)
+    server.timeout = 10
+    thread = threading.Thread(target=server.handle_request, daemon=True)
+    thread.start()
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            input_path = root / "input.pdf"
+            output_dir = root / "out"
+            input_path.write_bytes(b"%PDF-1.4 fake")
+            env = os.environ.copy()
+            env["OPEN_LLM_WIKI_LAYOUT_TOKEN"] = "fake"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/pdf_to_markdown.py",
+                    str(input_path),
+                    "--output",
+                    str(output_dir),
+                    "--api-url",
+                    f"http://127.0.0.1:{server.server_address[1]}/layout",
+                    "--retries",
+                    "0",
+                    "--timeout",
+                    "5",
+                    "--no-download-images",
+                ],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if result.returncode == 0:
+                print(result.stdout)
+                fail("pdf_to_markdown.py accepted a failing layout API response")
+            if "layout API request failed:" not in result.stdout or "Traceback" in result.stdout:
+                print(result.stdout)
+                fail("pdf_to_markdown.py did not print a clear HTTP failure")
+            if (output_dir / "combined.md").exists() or (output_dir / "manifest.json").exists():
+                fail("pdf_to_markdown.py wrote success outputs after a failing layout API response")
+    finally:
+        thread.join(timeout=5)
+        server.server_close()
+
+
 def check_safety_boundaries() -> None:
     vault = ROOT / "examples" / "minimal-vault"
     with tempfile.TemporaryDirectory() as tmp:
@@ -233,14 +321,164 @@ def check_safety_boundaries() -> None:
             print(result.stdout)
             fail("normalization boundary failure did not explain the vault constraint")
 
+        writeback_vault = Path(tmp) / "writeback-vault"
+        shutil.copytree(vault, writeback_vault)
+        unsafe_writeback = writeback_vault / "raw" / "concepts" / "unsafe.md"
+        unsafe_writeback.parent.mkdir(parents=True, exist_ok=True)
+        unsafe_writeback.write_text("# Raw evidence placeholder\n", encoding="utf-8")
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/wiki_writeback.py",
+                str(writeback_vault),
+                "--target",
+                "raw/concepts/unsafe.md",
+                "--query",
+                "unsafe writeback",
+                "--body",
+                "This should not be written. [[LLM-0001]]",
+                "--apply",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode == 0:
+            fail("writeback accepted a target outside top-level concepts/")
+        if "under concepts/" not in result.stdout:
+            print(result.stdout)
+            fail("writeback boundary failure did not explain the concepts/ constraint")
+
+        revision_vault = Path(tmp) / "revision-vault"
+        shutil.copytree(vault, revision_vault)
+        raw_revision_target = revision_vault / "raw" / "evil.md"
+        raw_revision_target.write_text("# Raw evidence placeholder\n", encoding="utf-8")
+        (revision_vault / "claims" / "claims.jsonl").write_text(
+            (
+                '{"claim_id":"claim-unsafe","source_id":"LLM-0001",'
+                '"claim_type":"contribution",'
+                '"object":"unsafe concept id should not rewrite raw",'
+                '"evidence":"sources/LLM-0001.md#L1",'
+                '"concepts":["../raw/evil"],"needs_review":false}\n'
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [sys.executable, "scripts/wiki_concept_revision.py", str(revision_vault), "--apply"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode == 0:
+            fail("concept revision accepted a target outside concepts/")
+        if "under concepts/" not in result.stdout:
+            print(result.stdout)
+            fail("concept revision boundary failure did not explain the concepts/ constraint")
+        if "Semantic Claim Matrix" in raw_revision_target.read_text(encoding="utf-8"):
+            fail("concept revision modified raw evidence through an unsafe concept id")
+
+        claims_vault = Path(tmp) / "claims-vault"
+        shutil.copytree(vault, claims_vault)
+        raw_claims_target = claims_vault / "raw" / "evil.md"
+        raw_claims_target.write_text("# Raw evidence placeholder\n", encoding="utf-8")
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/wiki_claims.py",
+                str(claims_vault),
+                "--output",
+                str(raw_claims_target),
+                "--report",
+                str(claims_vault / "claims" / "claim-report.md"),
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode == 0:
+            fail("claim extraction accepted an output path outside claims/")
+        if "under claims/" not in result.stdout:
+            print(result.stdout)
+            fail("claim output boundary failure did not explain the claims/ constraint")
+        if "claim_id" in raw_claims_target.read_text(encoding="utf-8"):
+            fail("claim extraction modified raw evidence through an unsafe output path")
+
+
+def check_pdf_corpus_report_short_outputs() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        raw_dir = Path(tmp) / "raw"
+        output_dir = raw_dir / "paper_markdown"
+        output_dir.mkdir(parents=True)
+        (raw_dir / "paper.pdf").write_bytes(b"%PDF-1.4 fake")
+        (output_dir / "combined.md").write_text("tiny\n", encoding="utf-8")
+        (output_dir / "manifest.json").write_text('{"attempts": 1}\n', encoding="utf-8")
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/pdf_corpus_report.py",
+                str(raw_dir),
+                "--fail-on-short",
+                "--min-combined-bytes",
+                "100",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode == 0:
+            print(result.stdout)
+            fail("corpus report accepted a suspiciously short combined Markdown output")
+        if "short_files: 1" not in result.stdout:
+            print(result.stdout)
+            fail("corpus report did not identify the short combined Markdown output")
+
+
+def check_pdf_corpus_report_parser_warnings() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        raw_dir = Path(tmp) / "raw"
+        output_dir = raw_dir / "paper_markdown"
+        output_dir.mkdir(parents=True)
+        (raw_dir / "paper.pdf").write_bytes(b"%PDF-1.4 fake")
+        (output_dir / "combined.md").write_text("converted markdown\n", encoding="utf-8")
+        (output_dir / "manifest.json").write_text(
+            '{"attempts": 1, "warnings": ["parser warning: table dropped"]}\n',
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/pdf_corpus_report.py",
+                str(raw_dir),
+                "--fail-on-parser-warnings",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode == 0:
+            print(result.stdout)
+            fail("corpus report accepted parser warnings")
+        if "parser_warnings: 1" not in result.stdout:
+            print(result.stdout)
+            fail("corpus report did not identify parser warnings")
+
 
 def main() -> None:
     check_skills()
     check_docs()
     check_minimal_vault()
     check_setup_script()
+    check_pdf_to_markdown_help()
     run_runtime_checks()
+    check_pdf_to_markdown_http_errors()
     check_safety_boundaries()
+    check_pdf_corpus_report_short_outputs()
+    check_pdf_corpus_report_parser_warnings()
     print("quality checks passed")
 
 

@@ -180,8 +180,16 @@ def main() -> int:
     vault = args.vault.resolve()
     if not (vault / "sources").is_dir():
         raise SystemExit(f"sources directory not found: {vault / 'sources'}")
-    output = ensure_within(args.output or vault / "claims" / "claims.jsonl", vault, "claim output must stay inside the vault")
-    report_path = ensure_within(args.report or vault / "claims" / "claim-report.md", vault, "claim report must stay inside the vault")
+    output = ensure_within(
+        args.output or vault / "claims" / "claims.jsonl",
+        vault / "claims",
+        "claim output must stay under claims/",
+    )
+    report_path = ensure_within(
+        args.report or vault / "claims" / "claim-report.md",
+        vault / "claims",
+        "claim report must stay under claims/",
+    )
 
     claims = extract_claims(vault)
     write_jsonl(output, claims)

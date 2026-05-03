@@ -49,8 +49,7 @@ def main() -> int:
 
     vault = args.vault.resolve()
     target = ensure_within(vault / args.target, vault, "target must stay inside the vault")
-    if "concepts" not in target.relative_to(vault).parts:
-        raise SystemExit("writeback target must be under concepts/")
+    ensure_within(target, vault / "concepts", "writeback target must be under concepts/")
     if not target.exists():
         raise SystemExit(f"target does not exist: {target}")
 

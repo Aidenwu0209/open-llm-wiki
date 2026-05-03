@@ -9,7 +9,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from wiki_common import read_text, write_text
+from wiki_common import ensure_within, read_text, write_text
 
 
 START = "<!-- open-llm-wiki:semantic-claims:start -->"
@@ -116,7 +116,11 @@ def main() -> int:
     for index, (concept_id, items) in enumerate(sorted(by_concept.items()), 1):
         if args.limit and index > args.limit:
             break
-        path = vault / "concepts" / f"{concept_id}.md"
+        path = ensure_within(
+            vault / "concepts" / f"{concept_id}.md",
+            vault / "concepts",
+            "concept revision target must stay under concepts/",
+        )
         if not path.exists():
             continue
         before = read_text(path)
