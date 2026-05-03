@@ -209,6 +209,20 @@ def run_runtime_checks() -> None:
             print(result.stdout)
             fail(f"runtime check failed: {' '.join(command)}")
 
+    contradiction_help = subprocess.run(
+        [sys.executable, "scripts/wiki_contradictions.py", "--help"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if "Relative numeric spread threshold" not in contradiction_help.stdout:
+        fail("contradiction help must document candidate detection behavior")
+    if "Write qa-reports/claim-contradictions" not in contradiction_help.stdout:
+        fail("contradiction help must document report mode")
+    if "Exit non-zero when numeric contradiction candidates" not in contradiction_help.stdout:
+        fail("contradiction help must document fail-on-candidate behavior")
+
 
 def check_safety_boundaries() -> None:
     vault = ROOT / "examples" / "minimal-vault"

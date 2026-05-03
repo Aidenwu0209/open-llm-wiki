@@ -113,11 +113,24 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Find contradiction candidates in claim graphs.")
     parser.add_argument("vault", type=Path)
     parser.add_argument("--claims", type=Path, help="Defaults to <vault>/claims/claims.jsonl.")
-    parser.add_argument("--tolerance", type=float, default=0.35)
-    parser.add_argument("--write-report", action="store_true")
+    parser.add_argument(
+        "--tolerance",
+        type=float,
+        default=0.35,
+        help="Relative numeric spread threshold for candidate conflicts. Defaults to 0.35.",
+    )
+    parser.add_argument(
+        "--write-report",
+        action="store_true",
+        help="Write qa-reports/claim-contradictions-YYYY-MM-DD.md, or --report when provided.",
+    )
     parser.add_argument("--report", type=Path, help="Defaults to <vault>/qa-reports/claim-contradictions-YYYY-MM-DD.md.")
     parser.add_argument("--format", choices=["markdown", "json"], default="markdown")
-    parser.add_argument("--fail-on-candidate", action="store_true")
+    parser.add_argument(
+        "--fail-on-candidate",
+        action="store_true",
+        help="Exit non-zero when numeric contradiction candidates are found.",
+    )
     args = parser.parse_args()
 
     vault = args.vault.resolve()
