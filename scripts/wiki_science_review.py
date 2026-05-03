@@ -21,7 +21,11 @@ def review_items(claims: list[dict[str, object]], limit: int) -> list[dict[str, 
         warnings = list(claim.get("normalization_warnings", []))
         if claim.get("needs_review"):
             warnings.append("claim_marked_needs_review")
-        if claim.get("claim_type") == "metric" and (not claim.get("baseline_key") or "generic_metric_name" in warnings):
+        if claim.get("claim_type") == "metric" and (
+            not claim.get("baseline_key")
+            or not claim.get("protocol_key")
+            or "generic_metric_name" in warnings
+        ):
             warnings.append("scientific_context_review")
         if warnings:
             item = dict(claim)

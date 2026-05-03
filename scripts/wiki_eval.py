@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
@@ -70,6 +71,53 @@ def main() -> int:
         test_vault = Path(tmp) / "vault"
         run([sys.executable, "scripts/wiki_init.py", str(test_vault), "--repo-root", str(ROOT)])
         run([sys.executable, "scripts/wiki_lint.py", str(test_vault), "--fail-on", "p1"])
+
+        review_vault = Path(tmp) / "review-vault"
+        (review_vault / "claims").mkdir(parents=True)
+        claim = {
+            "claim_id": "claim-missing-protocol",
+            "source_id": "LLM-0001",
+            "claim_type": "metric",
+            "predicate": "Accuracy",
+            "object": "92%",
+            "value": 92,
+            "unit": "%",
+            "baseline": "baseline model",
+            "baseline_key": "baseline model",
+            "protocol_key": "",
+            "metric_key": "accuracy",
+            "normalized_value": 92,
+            "normalized_unit": "%",
+            "unit_family": "score",
+            "normalization_warnings": [],
+            "needs_review": False,
+            "evidence": "sources/LLM-0001.md#Key Data",
+            "concepts": [],
+        }
+        (review_vault / "claims" / "claims.jsonl").write_text(
+            json.dumps(claim, ensure_ascii=False, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        review_result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/wiki_science_review.py",
+                str(review_vault),
+                "--format",
+                "json",
+                "--fail-on-review-required",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if review_result.returncode == 0:
+            raise SystemExit("science review eval did not fail on missing protocol context")
+        review_items = json.loads(review_result.stdout)["items"]
+        reasons = review_items[0].get("review_reasons", []) if review_items else []
+        if "scientific_context_review" not in reasons:
+            raise SystemExit("science review eval did not queue missing protocol context")
 
     print("runtime eval passed")
     return 0
