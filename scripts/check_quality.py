@@ -234,6 +234,36 @@ def check_safety_boundaries() -> None:
             fail("normalization boundary failure did not explain the vault constraint")
 
 
+def check_source_discovery_arxiv_filename() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("source discovery test vault initialization failed")
+        (vault / "raw" / "DeepSeek_Test_2401.00001.pdf").write_bytes(b"%PDF-1.4 fake")
+        result = subprocess.run(
+            [sys.executable, "scripts/wiki_discover_sources.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode != 0:
+            print(result.stdout)
+            fail("source discovery arxiv filename test failed")
+        registry = (vault / "_state" / "source-registry.jsonl").read_text(encoding="utf-8")
+        if '"arxiv": "2401.00001"' not in registry:
+            print(registry)
+            fail("source discovery did not extract arXiv ID from filename")
+
+
 def main() -> None:
     check_skills()
     check_docs()
@@ -241,6 +271,7 @@ def main() -> None:
     check_setup_script()
     run_runtime_checks()
     check_safety_boundaries()
+    check_source_discovery_arxiv_filename()
     print("quality checks passed")
 
 
