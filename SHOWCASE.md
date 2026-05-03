@@ -66,7 +66,8 @@ uv run python scripts/wiki_eval.py
 uv run python scripts/wiki_grow.py examples/minimal-vault --discover-sources --plan-queue --queue-cadence weekly --science-review --apply-concept-revision
 ```
 
-PDF-to-Markdown conversion, corpus ingestion, claim extraction, semantic QA,
-contradiction scanning, concept revision, and the corpus report are smoke-tested
-in CI. Real cloud parsing still requires a private token and sends document
-bytes to the configured layout-parsing endpoint.
+CI checks the PDF and corpus command interfaces with `--help`, then runs the
+local runtime smoke test for search, writeback proposals, claim extraction,
+semantic QA, contradiction scanning, concept revision, growth orchestration,
+and fresh vault initialization. Real cloud parsing still requires a private
+token and sends document bytes to the configured layout-parsing endpoint.
