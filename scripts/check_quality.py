@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -232,6 +233,35 @@ def check_safety_boundaries() -> None:
         if "must stay inside the vault" not in result.stdout:
             print(result.stdout)
             fail("normalization boundary failure did not explain the vault constraint")
+
+        writeback_vault = Path(tmp) / "writeback-vault"
+        shutil.copytree(vault, writeback_vault)
+        unsafe_target = writeback_vault / "raw" / "concepts" / "unsafe.md"
+        unsafe_target.parent.mkdir(parents=True, exist_ok=True)
+        unsafe_target.write_text("# Raw evidence placeholder\n", encoding="utf-8")
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/wiki_writeback.py",
+                str(writeback_vault),
+                "--target",
+                "raw/concepts/unsafe.md",
+                "--query",
+                "unsafe writeback",
+                "--body",
+                "This should not be written. [[LLM-0001]]",
+                "--apply",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode == 0:
+            fail("writeback accepted a target outside top-level concepts/")
+        if "under concepts/" not in result.stdout:
+            print(result.stdout)
+            fail("writeback boundary failure did not explain the concepts/ constraint")
 
 
 def main() -> None:
