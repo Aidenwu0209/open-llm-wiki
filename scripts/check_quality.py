@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import re
+import os
 import subprocess
 import sys
 import tempfile
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 
@@ -210,6 +213,61 @@ def run_runtime_checks() -> None:
             fail(f"runtime check failed: {' '.join(command)}")
 
 
+def check_pdf_to_markdown_http_errors() -> None:
+    class FailingHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(b"boom")
+
+        def log_message(self, *args: object) -> None:
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), FailingHandler)
+    thread = threading.Thread(target=server.handle_request)
+    thread.start()
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            input_path = root / "input.pdf"
+            output_dir = root / "out"
+            input_path.write_bytes(b"%PDF-1.4 fake")
+            env = os.environ.copy()
+            env["OPEN_LLM_WIKI_LAYOUT_TOKEN"] = "fake"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/pdf_to_markdown.py",
+                    str(input_path),
+                    "--output",
+                    str(output_dir),
+                    "--api-url",
+                    f"http://127.0.0.1:{server.server_address[1]}/layout",
+                    "--retries",
+                    "0",
+                    "--timeout",
+                    "5",
+                    "--no-download-images",
+                ],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if result.returncode == 0:
+                print(result.stdout)
+                fail("pdf_to_markdown.py accepted a failing layout API response")
+            if "layout API request failed:" not in result.stdout or "Traceback" in result.stdout:
+                print(result.stdout)
+                fail("pdf_to_markdown.py did not print a clear HTTP failure")
+            if (output_dir / "combined.md").exists() or (output_dir / "manifest.json").exists():
+                fail("pdf_to_markdown.py wrote success outputs after a failing layout API response")
+    finally:
+        thread.join(timeout=5)
+        server.server_close()
+
+
 def check_safety_boundaries() -> None:
     vault = ROOT / "examples" / "minimal-vault"
     with tempfile.TemporaryDirectory() as tmp:
@@ -240,6 +298,7 @@ def main() -> None:
     check_minimal_vault()
     check_setup_script()
     run_runtime_checks()
+    check_pdf_to_markdown_http_errors()
     check_safety_boundaries()
     print("quality checks passed")
 

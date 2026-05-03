@@ -202,14 +202,17 @@ def convert(args: argparse.Namespace) -> int:
         "Authorization": f"token {token}",
         "Content-Type": "application/json",
     }
-    response, attempts = request_with_retries(
-        args.api_url,
-        payload,
-        headers,
-        args.timeout,
-        args.retries,
-        args.retry_delay,
-    )
+    try:
+        response, attempts = request_with_retries(
+            args.api_url,
+            payload,
+            headers,
+            args.timeout,
+            args.retries,
+            args.retry_delay,
+        )
+    except requests.exceptions.RequestException as exc:
+        raise SystemExit(f"layout API request failed: {exc}") from exc
     data = response.json()
     if "result" not in data or "layoutParsingResults" not in data["result"]:
         raise SystemExit("API response did not contain result.layoutParsingResults")
