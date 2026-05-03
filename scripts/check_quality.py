@@ -188,6 +188,74 @@ def check_setup_script() -> None:
         fail("setup.sh must clean temp directory with trap")
 
 
+def find_setup_python() -> str:
+    for name in ["python3", "python", sys.executable]:
+        path = shutil.which(name) if name != sys.executable else name
+        if not path:
+            continue
+        try:
+            result = subprocess.run(
+                [path, "--version"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if result.returncode == 0:
+            return path
+    fail("setup runtime smoke test requires a working python3 or python")
+
+
+def check_setup_python_probe() -> None:
+    original_path = os.environ.get("PATH", "")
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        if os.name == "nt":
+            failing = tmp_path / "python3.cmd"
+            working = tmp_path / "python.cmd"
+            failing.write_text("@exit /b 49\n", encoding="utf-8")
+            working.write_text(f'@"{sys.executable}" %*\n', encoding="utf-8")
+        else:
+            failing = tmp_path / "python3"
+            working = tmp_path / "python"
+            failing.write_text("#!/usr/bin/env sh\nexit 49\n", encoding="utf-8")
+            working.write_text(f'#!/usr/bin/env sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+            failing.chmod(0o755)
+            working.chmod(0o755)
+
+        try:
+            os.environ["PATH"] = str(tmp_path)
+            selected = Path(find_setup_python()).resolve()
+        finally:
+            os.environ["PATH"] = original_path
+
+        if selected == failing.resolve():
+            fail("setup python probe selected an unusable python3 candidate")
+
+
+def check_setup_runtime() -> None:
+    python_bin = find_setup_python()
+    with tempfile.TemporaryDirectory() as tmp:
+        result = subprocess.run(
+            [
+                python_bin,
+                "scripts/wiki_init.py",
+                str(Path(tmp) / "vault"),
+                "--repo-root",
+                str(ROOT),
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode != 0:
+            print(result.stdout)
+            fail("setup runtime smoke test failed")
+
+
 def check_pdf_to_markdown_help() -> None:
     result = subprocess.run(
         [sys.executable, "scripts/pdf_to_markdown.py", "--help"],
@@ -473,6 +541,8 @@ def main() -> None:
     check_docs()
     check_minimal_vault()
     check_setup_script()
+    check_setup_python_probe()
+    check_setup_runtime()
     check_pdf_to_markdown_help()
     run_runtime_checks()
     check_pdf_to_markdown_http_errors()
