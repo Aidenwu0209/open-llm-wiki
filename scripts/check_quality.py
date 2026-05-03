@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -174,6 +176,32 @@ def check_minimal_vault() -> None:
             fail(f"minimal vault index missing {link}")
 
 
+def check_claim_extraction() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "minimal-vault"
+        shutil.copytree(ROOT / "examples" / "minimal-vault", vault)
+        result = subprocess.run(
+            [sys.executable, "scripts/wiki_claims.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode != 0:
+            print(result.stdout)
+            fail("claim extraction failed on minimal vault")
+
+        rows = [json.loads(line) for line in read(vault / "claims" / "claims.jsonl").splitlines() if line.strip()]
+        if not rows:
+            fail("claim extraction produced no claims")
+        for row in rows:
+            if row.get("claim_type") != "metric":
+                continue
+            evidence = str(row.get("evidence", ""))
+            if not evidence.startswith("sources/LLM-0001.md#Key Data"):
+                fail("metric claim evidence must point back to a source page anchor")
+
+
 def check_setup_script() -> None:
     text = read(ROOT / "setup.sh")
     if ".claude/skills" not in text:
@@ -238,6 +266,7 @@ def main() -> None:
     check_skills()
     check_docs()
     check_minimal_vault()
+    check_claim_extraction()
     check_setup_script()
     run_runtime_checks()
     check_safety_boundaries()

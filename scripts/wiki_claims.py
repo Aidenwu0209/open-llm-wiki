@@ -59,6 +59,15 @@ def parse_value(value: str) -> tuple[float | None, str]:
     return number, unit
 
 
+def source_section_anchor(relpath: str, heading: str, evidence: str) -> str:
+    clean = normalize_space(evidence)
+    if not clean:
+        return ""
+    if clean.startswith(("sources/", "raw/")):
+        return clean
+    return f"{relpath}#{heading}"
+
+
 def concept_links(body: str, concept_names: set[str]) -> list[str]:
     links = []
     for link in WIKILINK_RE.findall(body):
@@ -101,6 +110,7 @@ def metric_claims(source_id: str, title: str, body: str, concepts: list[str], re
         metric, raw_value, baseline, evidence = row[:4]
         numeric, unit = parse_value(raw_value)
         claim_id = f"claim-{short_hash(source_id + metric + raw_value + evidence)}"
+        anchor = source_section_anchor(relpath, "Key Data", evidence)
         claims.append(
             {
                 "claim_id": claim_id,
@@ -114,7 +124,7 @@ def metric_claims(source_id: str, title: str, body: str, concepts: list[str], re
                 "value": numeric,
                 "unit": unit,
                 "baseline": baseline,
-                "evidence": evidence,
+                "evidence": anchor,
                 "concepts": concepts,
                 "confidence": 0.82 if evidence else 0.55,
                 "needs_review": "not available" in evidence.lower() or not evidence,
