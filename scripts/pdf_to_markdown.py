@@ -202,14 +202,17 @@ def convert(args: argparse.Namespace) -> int:
         "Authorization": f"token {token}",
         "Content-Type": "application/json",
     }
-    response, attempts = request_with_retries(
-        args.api_url,
-        payload,
-        headers,
-        args.timeout,
-        args.retries,
-        args.retry_delay,
-    )
+    try:
+        response, attempts = request_with_retries(
+            args.api_url,
+            payload,
+            headers,
+            args.timeout,
+            args.retries,
+            args.retry_delay,
+        )
+    except requests.exceptions.RequestException as exc:
+        raise SystemExit(f"layout API request failed: {exc}") from exc
     data = response.json()
     if "result" not in data or "layoutParsingResults" not in data["result"]:
         raise SystemExit("API response did not contain result.layoutParsingResults")
@@ -262,21 +265,51 @@ def convert(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Convert a PDF to Markdown using a layout-parsing API.")
+    parser = argparse.ArgumentParser(
+        description="Convert a PDF to Markdown using a layout-parsing API.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "API settings:\n"
+            f"  Token is read from --token-env, default {DEFAULT_TOKEN_ENV}, with {FALLBACK_TOKEN_ENV} fallback.\n"
+            f"  API URL defaults to OPEN_LLM_WIKI_LAYOUT_API_URL or {DEFAULT_API_URL}.\n"
+            "\n"
+            "Output behavior:\n"
+            "  Writes doc_*.md files, the combined Markdown file, downloaded image assets when enabled,\n"
+            "  and manifest.json under --output. Use --dry-run to inspect settings without sending the PDF.\n"
+        ),
+    )
     parser.add_argument("input", type=Path, help="Local PDF path.")
-    parser.add_argument("--output", type=Path, default=Path("output"), help="Output directory.")
-    parser.add_argument("--api-url", default=os.environ.get("OPEN_LLM_WIKI_LAYOUT_API_URL", DEFAULT_API_URL))
-    parser.add_argument("--token-env", default=DEFAULT_TOKEN_ENV)
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("output"),
+        help="Output directory for doc_*.md, combined Markdown, images, and manifest.json.",
+    )
+    parser.add_argument(
+        "--api-url",
+        default=os.environ.get("OPEN_LLM_WIKI_LAYOUT_API_URL", DEFAULT_API_URL),
+        help="Layout-parsing API URL. Defaults to OPEN_LLM_WIKI_LAYOUT_API_URL or the built-in endpoint.",
+    )
+    parser.add_argument(
+        "--token-env",
+        default=DEFAULT_TOKEN_ENV,
+        help=f"Environment variable containing the API token. Falls back to {FALLBACK_TOKEN_ENV}.",
+    )
     parser.add_argument("--file-type", type=int, choices=[0, 1], default=0, help="0=PDF, 1=image.")
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--retries", type=int, default=2, help="Retry count for transient API failures.")
     parser.add_argument("--retry-delay", type=int, default=5, help="Seconds to wait between retries.")
     parser.add_argument("--max-bytes", type=int, default=50 * 1024 * 1024)
     parser.add_argument("--options-file", type=Path, help="JSON object overriding API options.")
-    parser.add_argument("--combined-name", default="combined.md")
+    parser.add_argument("--combined-name", default="combined.md", help="Name of the combined Markdown output file.")
     parser.add_argument("--fail-on-suspicious-text", action="store_true")
-    parser.add_argument("--no-download-images", dest="download_images", action="store_false")
-    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--no-download-images",
+        dest="download_images",
+        action="store_false",
+        help="Do not download image assets referenced by the API response.",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Print API/output settings without sending the PDF.")
     parser.set_defaults(download_images=True)
     return convert(parser.parse_args())
 
