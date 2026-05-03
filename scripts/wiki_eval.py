@@ -71,6 +71,25 @@ def main() -> int:
         run([sys.executable, "scripts/wiki_init.py", str(test_vault), "--repo-root", str(ROOT)])
         run([sys.executable, "scripts/wiki_lint.py", str(test_vault), "--fail-on", "p1"])
 
+        science_queue_symlink_vault = Path(tmp) / "science-queue-symlink-vault"
+        shutil.copytree(vault, science_queue_symlink_vault)
+        run([sys.executable, "scripts/wiki_claims.py", str(science_queue_symlink_vault)])
+        outside_science_queue = Path(tmp) / "outside-science-queue.jsonl"
+        outside_science_queue.write_text("", encoding="utf-8")
+        science_queue_path = science_queue_symlink_vault / "_state" / "science-review-queue.jsonl"
+        science_queue_path.unlink()
+        science_queue_path.symlink_to(outside_science_queue)
+        science_result = subprocess.run(
+            [sys.executable, "scripts/wiki_science_review.py", str(science_queue_symlink_vault), "--queue"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if science_result.returncode == 0 or outside_science_queue.read_text(encoding="utf-8"):
+            print(science_result.stdout)
+            raise SystemExit("science review eval allowed queue symlink escape")
+
     print("runtime eval passed")
     return 0
 

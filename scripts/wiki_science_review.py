@@ -95,7 +95,12 @@ def main() -> int:
     claims_path = (args.claims or vault / "claims" / "claims.jsonl").resolve()
     items = review_items(load_claims(claims_path), args.limit)
     if args.queue:
-        queue_path = vault / "_state" / "science-review-queue.jsonl"
+        state_dir = ensure_within(vault / "_state", vault, "_state must stay inside the vault")
+        queue_path = ensure_within(
+            state_dir / "science-review-queue.jsonl",
+            state_dir,
+            "science review queue must stay inside _state",
+        )
         write_jsonl(queue_path, items)
     if args.write_report:
         report = ensure_within(
