@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import subprocess
 import sys
@@ -70,6 +71,46 @@ def main() -> int:
         test_vault = Path(tmp) / "vault"
         run([sys.executable, "scripts/wiki_init.py", str(test_vault), "--repo-root", str(ROOT)])
         run([sys.executable, "scripts/wiki_lint.py", str(test_vault), "--fail-on", "p1"])
+
+        corpus_vault = Path(tmp) / "corpus-vault"
+        run([sys.executable, "scripts/wiki_init.py", str(corpus_vault), "--repo-root", str(ROOT)])
+        raw_dir = corpus_vault / "raw"
+        parsed_dir = raw_dir / "2501.00001_markdown"
+        parsed_dir.mkdir(parents=True)
+        (raw_dir / "2501.00001.pdf").write_bytes(b"%PDF-1.4\n% synthetic placeholder\n")
+        (parsed_dir / "combined.md").write_text(
+            "# DeepSeek Synthetic Evaluation Paper\n\n"
+            "Abstract\n\n"
+            "This paper studies DeepSeek benchmark evaluation for a synthetic model. "
+            "It reports 7B parameters and HumanEval accuracy at 71% under a stated protocol. "
+            "The content is long enough for corpus ingestion, source discovery, claim extraction, "
+            "metric normalization, semantic QA, and concept revision.\n\n"
+            "Results\n\n"
+            "HumanEval accuracy reaches 71% with baseline model 1.\n\n"
+            "Architecture\n\n"
+            "The model has 7B parameters for the experiment.\n",
+            encoding="utf-8",
+        )
+        run(
+            [
+                sys.executable,
+                "scripts/wiki_grow.py",
+                str(corpus_vault),
+                "--discover-sources",
+                "--ingest-corpus",
+                "--semantic-fail-on",
+                "none",
+                "--skip-lint",
+            ]
+        )
+        registry_rows = [
+            json.loads(line)
+            for line in (corpus_vault / "_state" / "source-registry.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        kinds = {str(row.get("kind")) for row in registry_rows}
+        if not {"raw", "source"}.issubset(kinds):
+            raise SystemExit("grow eval did not refresh source registry after corpus ingest")
 
     print("runtime eval passed")
     return 0

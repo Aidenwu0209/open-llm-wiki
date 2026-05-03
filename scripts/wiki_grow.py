@@ -39,6 +39,8 @@ def main() -> int:
         run([sys.executable, str(SCRIPTS / "wiki_discover_sources.py"), vault])
     if args.ingest_corpus:
         run([sys.executable, str(SCRIPTS / "wiki_ingest_corpus.py"), vault, "--resume"])
+        if args.discover_sources:
+            run([sys.executable, str(SCRIPTS / "wiki_discover_sources.py"), vault])
     if args.plan_queue and not args.skip_queue:
         run([sys.executable, str(SCRIPTS / "wiki_queue.py"), vault, "plan", "--cadence", args.queue_cadence])
     run([sys.executable, str(SCRIPTS / "wiki_claims.py"), vault])
