@@ -63,6 +63,15 @@ def ensure_within(path: Path, root: Path, message: str) -> Path:
     return resolved_path
 
 
+def ensure_vault_subpath(path: Path, vault: Path, top_level: str, message: str) -> Path:
+    resolved_vault = vault.resolve()
+    resolved_path = ensure_within(path, resolved_vault, message)
+    rel_parts = resolved_path.relative_to(resolved_vault).parts
+    if not rel_parts or rel_parts[0] != top_level:
+        raise SystemExit(message)
+    return resolved_path
+
+
 def parse_frontmatter(path: Path) -> tuple[dict[str, str], str]:
     text = read_text(path)
     if not text.startswith("---\n"):

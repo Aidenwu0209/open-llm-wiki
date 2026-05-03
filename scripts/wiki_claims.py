@@ -10,7 +10,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from wiki_common import WIKILINK_RE, ensure_within, json_dump, parse_frontmatter, read_text, rel, write_text
+from wiki_common import WIKILINK_RE, ensure_vault_subpath, json_dump, parse_frontmatter, read_text, rel, write_text
 
 
 NUMBER_RE = re.compile(r"([-+]?\d+(?:,\d{3})*(?:\.\d+)?)\s*([A-Za-z%]+)?")
@@ -208,14 +208,16 @@ def main() -> int:
     vault = args.vault.resolve()
     if not (vault / "sources").is_dir():
         raise SystemExit(f"sources directory not found: {vault / 'sources'}")
-    output = ensure_within(
+    output = ensure_vault_subpath(
         args.output or vault / "claims" / "claims.jsonl",
-        vault / "claims",
+        vault,
+        "claims",
         "claim output must stay under claims/",
     )
-    report_path = ensure_within(
+    report_path = ensure_vault_subpath(
         args.report or vault / "claims" / "claim-report.md",
-        vault / "claims",
+        vault,
+        "claims",
         "claim report must stay under claims/",
     )
 

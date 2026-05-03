@@ -39,6 +39,14 @@ BANNED_TOKENS = [
 ]
 
 
+def symlink_dir(target: Path, link: Path) -> bool:
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except (NotImplementedError, OSError):
+        return False
+    return True
+
+
 def fail(message: str) -> None:
     print(f"ERROR: {message}")
     raise SystemExit(1)
@@ -457,6 +465,51 @@ def check_safety_boundaries() -> None:
             fail("claim output boundary failure did not explain the claims/ constraint")
         if "claim_id" in raw_claims_target.read_text(encoding="utf-8"):
             fail("claim extraction modified raw evidence through an unsafe output path")
+
+        symlink_claims_vault = Path(tmp) / "symlink-claims-vault"
+        shutil.copytree(vault, symlink_claims_vault)
+        outside_claims_dir = Path(tmp) / "outside-claims-dir"
+        outside_claims_dir.mkdir()
+        shutil.rmtree(symlink_claims_vault / "claims")
+        if symlink_dir(outside_claims_dir, symlink_claims_vault / "claims"):
+            result = subprocess.run(
+                [sys.executable, "scripts/wiki_claims.py", str(symlink_claims_vault)],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if result.returncode == 0:
+                print(result.stdout)
+                fail("claim extraction accepted a symlinked claims/ directory outside the vault")
+            if "under claims/" not in result.stdout:
+                print(result.stdout)
+                fail("claim symlink boundary failure did not explain the claims/ constraint")
+            if (outside_claims_dir / "claims.jsonl").exists() or (outside_claims_dir / "claim-report.md").exists():
+                fail("claim extraction wrote outputs through a symlinked claims/ directory")
+
+        symlink_revision_vault = Path(tmp) / "symlink-revision-vault"
+        shutil.copytree(vault, symlink_revision_vault)
+        outside_concepts_dir = Path(tmp) / "outside-concepts-dir"
+        shutil.move(str(symlink_revision_vault / "concepts"), outside_concepts_dir)
+        outside_concept = outside_concepts_dir / "attention-mechanisms.md"
+        original_concept = outside_concept.read_text(encoding="utf-8")
+        if symlink_dir(outside_concepts_dir, symlink_revision_vault / "concepts"):
+            result = subprocess.run(
+                [sys.executable, "scripts/wiki_concept_revision.py", str(symlink_revision_vault), "--apply"],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if result.returncode == 0:
+                print(result.stdout)
+                fail("concept revision accepted a symlinked concepts/ directory outside the vault")
+            if "under concepts/" not in result.stdout or "Traceback" in result.stdout:
+                print(result.stdout)
+                fail("concept revision symlink failure did not cleanly explain the concepts/ constraint")
+            if outside_concept.read_text(encoding="utf-8") != original_concept:
+                fail("concept revision modified a page through a symlinked concepts/ directory")
 
 
 def check_pdf_corpus_report_short_outputs() -> None:
