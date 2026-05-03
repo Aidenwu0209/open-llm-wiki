@@ -71,6 +71,20 @@ def main() -> int:
         run([sys.executable, "scripts/wiki_init.py", str(test_vault), "--repo-root", str(ROOT)])
         run([sys.executable, "scripts/wiki_lint.py", str(test_vault), "--fail-on", "p1"])
 
+        missing_review_queue_vault = Path(tmp) / "missing-review-queue-vault"
+        shutil.copytree(vault, missing_review_queue_vault)
+        (missing_review_queue_vault / "_state" / "science-review-queue.jsonl").unlink()
+        lint_result = subprocess.run(
+            [sys.executable, "scripts/wiki_lint.py", str(missing_review_queue_vault), "--fail-on", "p1"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if lint_result.returncode == 0 or "_state/science-review-queue.jsonl" not in lint_result.stdout:
+            print(lint_result.stdout)
+            raise SystemExit("lint eval did not fail on missing science review queue")
+
     print("runtime eval passed")
     return 0
 

@@ -27,7 +27,15 @@ from wiki_common import (
 
 
 REQUIRED_DIRS = ["raw", "sources", "concepts", "drafts", "qa-reports", "claims", "templates", "_state", "log-archive"]
-REQUIRED_FILES = ["SCHEMA.md", "index.md", "log.md", "_state/id-counter.md", "_state/growth-queue.jsonl", "_state/source-registry.jsonl"]
+REQUIRED_FILES = [
+    "SCHEMA.md",
+    "index.md",
+    "log.md",
+    "_state/id-counter.md",
+    "_state/growth-queue.jsonl",
+    "_state/source-registry.jsonl",
+    "_state/science-review-queue.jsonl",
+]
 SOURCE_FIELDS = {"id", "title", "status", "created", "updated", "source", "tags"}
 CONCEPT_FIELDS = {"id", "title", "created", "updated"}
 STALE_WORDS = ("latest", "current", "state of the art", "sota", "now")
