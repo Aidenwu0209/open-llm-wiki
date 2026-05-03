@@ -10,7 +10,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from wiki_common import read_text, write_text
+from wiki_common import ensure_within, read_text, write_text
 
 
 VALID_ACTIONS = {"discover", "grow", "science-review", "concept-revision", "lint"}
@@ -121,7 +121,8 @@ def main() -> int:
     args = parser.parse_args()
 
     vault = args.vault.resolve()
-    queue_path = vault / "_state" / "growth-queue.jsonl"
+    state_dir = ensure_within(vault / "_state", vault, "_state must stay inside the vault")
+    queue_path = ensure_within(state_dir / "growth-queue.jsonl", state_dir, "growth queue must stay inside _state")
     rows = load_queue(queue_path)
     if args.command == "init":
         save_queue(queue_path, rows)

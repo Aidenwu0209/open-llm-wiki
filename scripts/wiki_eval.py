@@ -71,6 +71,24 @@ def main() -> int:
         run([sys.executable, "scripts/wiki_init.py", str(test_vault), "--repo-root", str(ROOT)])
         run([sys.executable, "scripts/wiki_lint.py", str(test_vault), "--fail-on", "p1"])
 
+        queue_symlink_vault = Path(tmp) / "queue-symlink-vault"
+        shutil.copytree(vault, queue_symlink_vault)
+        outside_queue = Path(tmp) / "outside-queue.jsonl"
+        outside_queue.write_text("", encoding="utf-8")
+        queue_path = queue_symlink_vault / "_state" / "growth-queue.jsonl"
+        queue_path.unlink()
+        queue_path.symlink_to(outside_queue)
+        queue_result = subprocess.run(
+            [sys.executable, "scripts/wiki_queue.py", str(queue_symlink_vault), "plan", "--cadence", "now"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if queue_result.returncode == 0 or outside_queue.read_text(encoding="utf-8"):
+            print(queue_result.stdout)
+            raise SystemExit("queue eval allowed growth queue symlink escape")
+
     print("runtime eval passed")
     return 0
 
