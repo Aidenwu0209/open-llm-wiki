@@ -979,6 +979,60 @@ def check_corpus_ingest_generic_concepts() -> None:
                 fail(f"generic corpus ingest did not create expected concept: {concept}")
 
 
+def check_corpus_ingest_metric_noise_filter() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("metric noise vault initialization failed")
+        markdown_dir = vault / "raw" / "DeepSeek_Metric_Noise_2401.00001_markdown"
+        markdown_dir.mkdir(parents=True)
+        (vault / "raw" / "DeepSeek_Metric_Noise_2401.00001.pdf").write_bytes(b"%PDF-1.4 fake")
+        (markdown_dir / "combined.md").write_text(
+            "# DeepSeek Metric Noise Test\n\n"
+            "Abstract\n"
+            "The model has 16B parameters and activates 2.4B parameters for each token while "
+            "supporting a 128K token context for long-context evaluation.\n\n"
+            "1 Introduction\n"
+            "Math datasets include GSM8K and MATH, but this line intentionally reports no score or metric value.\n"
+            "H. Xin and collaborators released a related arXiv preprint in 2024b with no model metric on this line.\n"
+            "The recurrence uses $2k - 1$ terms in the derivation without reporting a benchmark result.\n"
+            "The context length is 128K tokens for long-context evaluation.\n",
+            encoding="utf-8",
+        )
+        ingest_result = subprocess.run(
+            [sys.executable, "scripts/wiki_ingest_corpus.py", str(vault), "--today", "2026-05-03"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if ingest_result.returncode != 0:
+            print(ingest_result.stdout)
+            fail("metric noise corpus ingest failed")
+        source_text = read(vault / "sources" / "LLM-0001.md")
+        try:
+            key_data = source_text.split("## Key Data", 1)[1].split("## Timeline Position", 1)[0]
+        except IndexError:
+            print(source_text)
+            fail("metric noise source page missing Key Data section")
+        for expected in ["16B", "2.4B", "128K"]:
+            if expected not in key_data:
+                print(source_text)
+                fail(f"metric noise filter dropped valid metric value: {expected}")
+        for noisy in ["GSM8K", "2024b", "2k - 1"]:
+            if noisy in key_data:
+                print(source_text)
+                fail(f"metric noise filter kept low-signal metric fragment: {noisy}")
+
+
 def check_corpus_ingest_resume_continues() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -1066,6 +1120,7 @@ def main() -> None:
     check_source_discovery_arxiv_filename()
     check_corpus_ingest_fresh_vault()
     check_corpus_ingest_generic_concepts()
+    check_corpus_ingest_metric_noise_filter()
     check_corpus_ingest_resume_continues()
     print("quality checks passed")
 

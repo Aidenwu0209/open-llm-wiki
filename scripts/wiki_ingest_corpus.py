@@ -180,6 +180,44 @@ def concepts_for_tags(tags: list[str], title: str, abstract: str, concept_defs: 
     return sorted(dict.fromkeys(concepts or [fallback]))
 
 
+COMPACT_METRIC_RE = re.compile(r"(?<![A-Za-z])\d+(?:\.\d+)?\s*(?:B|M|K|T)\b")
+EXPLICIT_METRIC_RE = re.compile(
+    r"(?<![A-Za-z])\d+(?:\.\d+)?\s*"
+    r"(?:%|tokens?|parameters?|experts?|pages?|samples?|languages|benchmarks|gpu hours?)\b",
+    re.IGNORECASE,
+)
+METRIC_CONTEXT_RE = re.compile(
+    r"(parameter|activated|active|token|context|expert|language|benchmark|score|accuracy|"
+    r"training|cost|gpu|pass@|aime|math|mmlu|gpqa|humaneval|bleu|ocr|flop)",
+    re.IGNORECASE,
+)
+CITATION_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}[a-z]\b", re.IGNORECASE)
+
+
+def metric_value_match(clean: str) -> re.Match[str] | None:
+    explicit = EXPLICIT_METRIC_RE.search(clean)
+    if explicit:
+        return explicit
+    compact = COMPACT_METRIC_RE.search(clean)
+    if not compact:
+        return None
+    value = compact.group(0).strip()
+    if CITATION_YEAR_RE.fullmatch(value):
+        return None
+    if not METRIC_CONTEXT_RE.search(clean):
+        return None
+    return compact
+
+
+def is_low_signal_metric_line(clean: str) -> bool:
+    lower = clean.lower()
+    if CITATION_YEAR_RE.search(clean) and any(marker in lower for marker in ["arxiv", "preprint", "et al", "proceedings"]):
+        return True
+    if clean.count("$") >= 2 and not METRIC_CONTEXT_RE.search(clean):
+        return True
+    return False
+
+
 def evidence_rows(lines: list[str], raw_rel: str) -> list[tuple[str, str, str]]:
     keywords = re.compile(
         r"(parameter|token|benchmark|score|accuracy|training|model|expert|AIME|MATH|"
@@ -194,17 +232,14 @@ def evidence_rows(lines: list[str], raw_rel: str) -> list[tuple[str, str, str]]:
             continue
         if lower.startswith(("figure ", "table ", "fig. ")) or clean.startswith("#"):
             continue
+        if is_low_signal_metric_line(clean):
+            continue
         if not re.search(r"\d", clean) or not keywords.search(clean):
             continue
-        value = re.search(
-            r"(\d+(?:\.\d+)?\s*(?:B|M|K|%)\b|\d+(?:\.\d+)?\s*"
-            r"(?:tokens?|parameters?|experts?|pages?|samples?|languages|benchmarks)\b)",
-            clean,
-            re.IGNORECASE,
-        )
+        value = metric_value_match(clean)
         if not value:
             continue
-        rows.append((clean, value.group(1), f"{raw_rel}#L{number}"))
+        rows.append((clean, value.group(0), f"{raw_rel}#L{number}"))
         if len(rows) >= 4:
             break
     if not rows:
