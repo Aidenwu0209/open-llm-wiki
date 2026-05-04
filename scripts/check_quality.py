@@ -205,6 +205,48 @@ def check_claim_extraction() -> None:
                 fail("metric claim evidence must point back to a source page anchor")
 
 
+def check_semantic_qa_qualitative_metric_placeholder() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "minimal-vault"
+        shutil.copytree(ROOT / "examples" / "minimal-vault", vault)
+        claim = {
+            "claim_id": "claim-qualitative-placeholder",
+            "source_id": "LLM-0001",
+            "claim_type": "metric",
+            "subject": "Attention Test",
+            "predicate": "Reported claim",
+            "object": "qualitative claim",
+            "value": None,
+            "unit": "",
+            "baseline": "as stated in source",
+            "evidence": "sources/LLM-0001.md#L1",
+            "concepts": ["attention-mechanisms"],
+            "confidence": 0.82,
+            "needs_review": False,
+            "metric_key": "qualitative",
+            "normalized_value": None,
+            "normalized_unit": "",
+            "unit_family": "numeric",
+            "baseline_key": "",
+            "protocol_key": "",
+            "normalization_warnings": ["missing_normalized_value", "baseline_not_normalized"],
+        }
+        (vault / "claims" / "claims.jsonl").write_text(json.dumps(claim) + "\n", encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, "scripts/wiki_semantic_qa.py", str(vault), "--fail-on", "p1"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode != 0:
+            print(result.stdout)
+            fail("semantic QA rejected a qualitative metric placeholder as a numeric metric")
+        if "metric value is not visible on anchored line" in result.stdout:
+            print(result.stdout)
+            fail("semantic QA still emitted a numeric visibility issue for a qualitative placeholder")
+
+
 def check_setup_script() -> None:
     text = read(ROOT / "setup.sh")
     if ".claude/skills" not in text:
@@ -1052,6 +1094,7 @@ def main() -> None:
     check_docs()
     check_minimal_vault()
     check_claim_extraction()
+    check_semantic_qa_qualitative_metric_placeholder()
     check_setup_script()
     check_setup_python_probe()
     check_setup_runtime()

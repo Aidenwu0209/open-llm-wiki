@@ -74,6 +74,16 @@ def heading_exists(path: Path, fragment: str) -> bool:
     return False
 
 
+def is_qualitative_metric_placeholder(claim: dict[str, object]) -> bool:
+    if claim.get("claim_type") != "metric":
+        return False
+    metric_key = str(claim.get("metric_key", "")).strip().lower()
+    object_text = str(claim.get("object", "")).strip().lower()
+    has_value = claim.get("value") not in {None, ""}
+    has_normalized_value = claim.get("normalized_value") not in {None, ""}
+    return metric_key == "qualitative" and object_text == "qualitative claim" and not has_value and not has_normalized_value
+
+
 def check_claims(vault: Path, claims: list[dict[str, object]]) -> list[Issue]:
     issues: list[Issue] = []
     source_ids = {path.stem for path in (vault / "sources").glob("LLM-*.md")}
@@ -109,7 +119,12 @@ def check_claims(vault: Path, claims: list[dict[str, object]]) -> list[Issue]:
                 issues.append(Issue("P1", subject, f"evidence line is out of range: {evidence}"))
                 continue
             value = claim.get("object")
-            if value and str(value) not in lines[line_number - 1] and claim.get("claim_type") == "metric":
+            if (
+                value
+                and str(value) not in lines[line_number - 1]
+                and claim.get("claim_type") == "metric"
+                and not is_qualitative_metric_placeholder(claim)
+            ):
                 issues.append(Issue("P1", subject, f"metric value is not visible on anchored line: {evidence}"))
     for source_id in sorted(source_ids):
         if claims_by_source.get(source_id, 0) == 0:
