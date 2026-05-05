@@ -621,6 +621,68 @@ def check_pdf_corpus_to_markdown_progress_log() -> None:
         server.server_close()
 
 
+def check_writeback_semantic_qa_gate() -> None:
+    vault = ROOT / "examples" / "minimal-vault"
+    with tempfile.TemporaryDirectory() as tmp:
+        writeback_vault = Path(tmp) / "writeback-qa-vault"
+        shutil.copytree(vault, writeback_vault)
+        (writeback_vault / "qa-reports" / "semantic-qa-2026-05-04.md").write_text(
+            "\n".join(
+                [
+                    "# Semantic QA Report",
+                    "- date: 2026-05-04",
+                    f"- vault: {writeback_vault}",
+                    "- claims: 1",
+                    "- p0: 0",
+                    "- p1: 1",
+                    "- p2: 0",
+                    "- verdict: FAIL",
+                    "",
+                    "## Findings",
+                    "- [P1] LLM-0001: metric value is not visible on anchored line",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        command = [
+            sys.executable,
+            "scripts/wiki_writeback.py",
+            str(writeback_vault),
+            "--target",
+            "concepts/attention-mechanisms.md",
+            "--query",
+            "summarize attention",
+            "--body",
+            "Attention evidence should be reviewed before autonomous writeback. [[LLM-0001]]",
+        ]
+        proposal = subprocess.run(command, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if proposal.returncode != 0:
+            print(proposal.stdout)
+            fail("writeback proposal rejected a vault with failing semantic QA")
+        if "WARNING: latest semantic QA report is not clean" not in proposal.stdout or "p1=1" not in proposal.stdout:
+            print(proposal.stdout)
+            fail("writeback proposal did not warn about failing semantic QA")
+        expect_command_failure(
+            command + ["--apply"],
+            "writeback not applied",
+            "writeback applied despite failing semantic QA",
+        )
+        allowed = subprocess.run(
+            command + ["--apply", "--allow-failing-qa"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if allowed.returncode != 0:
+            print(allowed.stdout)
+            fail("writeback explicit failing-QA override was rejected")
+        if "applied writeback" not in allowed.stdout:
+            print(allowed.stdout)
+            fail("writeback explicit failing-QA override did not apply the writeback")
+
+
 def check_safety_boundaries() -> None:
     vault = ROOT / "examples" / "minimal-vault"
     with tempfile.TemporaryDirectory() as tmp:
@@ -1284,6 +1346,7 @@ def main() -> None:
     run_runtime_checks()
     check_pdf_to_markdown_http_errors()
     check_pdf_corpus_to_markdown_progress_log()
+    check_writeback_semantic_qa_gate()
     check_safety_boundaries()
     check_pdf_corpus_report_short_outputs()
     check_pdf_corpus_report_parser_warnings()
