@@ -843,6 +843,39 @@ def check_pdf_corpus_report_parser_warnings() -> None:
             fail("corpus report did not identify parser warnings")
 
 
+def check_pdf_corpus_report_nested_raw_layout() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        raw_dir = Path(tmp) / "raw"
+        pdf_dir = raw_dir / "deepseek_paper"
+        output_dir = raw_dir / "paper_markdown"
+        pdf_dir.mkdir(parents=True)
+        output_dir.mkdir(parents=True)
+        (pdf_dir / "paper.pdf").write_bytes(b"%PDF-1.4 fake")
+        (output_dir / "combined.md").write_text("converted markdown\n", encoding="utf-8")
+        (output_dir / "manifest.json").write_text('{"attempts": 1}\n', encoding="utf-8")
+        for report_dir in [raw_dir, pdf_dir]:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/pdf_corpus_report.py",
+                    str(report_dir),
+                    "--expect-count",
+                    "1",
+                    "--fail-on-missing",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if result.returncode != 0:
+                print(result.stdout)
+                fail("corpus report rejected a nested raw evidence layout")
+            if "pdfs: 1" not in result.stdout or "combined_files: 1" not in result.stdout:
+                print(result.stdout)
+                fail("corpus report did not count nested PDFs and sibling Markdown outputs")
+
+
 def check_source_discovery_arxiv_filename() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -1063,6 +1096,7 @@ def main() -> None:
     check_safety_boundaries()
     check_pdf_corpus_report_short_outputs()
     check_pdf_corpus_report_parser_warnings()
+    check_pdf_corpus_report_nested_raw_layout()
     check_source_discovery_arxiv_filename()
     check_corpus_ingest_fresh_vault()
     check_corpus_ingest_generic_concepts()

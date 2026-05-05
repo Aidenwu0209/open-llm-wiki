@@ -15,9 +15,19 @@ def read_text(path: Path) -> str:
 
 
 def collect_outputs(raw_dir: Path, combined_name: str) -> tuple[list[Path], list[Path], list[Path]]:
-    pdfs = sorted(raw_dir.glob("*.pdf"))
-    combined = sorted(raw_dir.glob(f"*_markdown/{combined_name}"))
-    manifests = sorted(raw_dir.glob("*_markdown/manifest.json"))
+    output_root = raw_dir
+    parent_outputs = sorted(raw_dir.parent.glob(f"*_markdown/{combined_name}"))
+    if not sorted(raw_dir.glob(f"*_markdown/{combined_name}")) and parent_outputs:
+        output_root = raw_dir.parent
+
+    pdf_dirs = [raw_dir]
+    nested_pdf_dir = raw_dir / "deepseek_paper"
+    if nested_pdf_dir.is_dir():
+        pdf_dirs.append(nested_pdf_dir)
+
+    pdfs = sorted({path for pdf_dir in pdf_dirs for path in pdf_dir.glob("*.pdf")})
+    combined = sorted(output_root.glob(f"*_markdown/{combined_name}"))
+    manifests = sorted(output_root.glob("*_markdown/manifest.json"))
     return pdfs, combined, manifests
 
 
