@@ -70,6 +70,7 @@ The skills coordinate judgment. The runtime scripts handle repeatable checks:
 | --- | --- |
 | `scripts/wiki_init.py` | initialize a portable personal/team vault |
 | `scripts/wiki_obsidian_setup.py` | add an optional Obsidian profile with merged settings, plugins, theme, inbox, and diagram folders |
+| `scripts/wiki_status.py` | summarize vault health and optionally write an Obsidian `_dashboard.md` |
 | `scripts/pdf_corpus_report.py` | verify converted corpus coverage, manifests, parser warnings, and semantic hits |
 | `scripts/pdf_corpus_to_markdown.py` | batch-convert a PDF folder with retries, skip logic, and a TSV audit log |
 | `scripts/pdf_to_markdown.py` | convert PDFs to Markdown through a configurable layout-parsing API |
@@ -127,6 +128,14 @@ uv run python scripts/wiki_lint.py my-llm-wiki --obsidian --fail-on p1
 Profiles are `minimal`, `research`, and `full`. Re-runs merge JSON settings and
 community plugin lists without overwriting existing user keys. Use
 `--skip-downloads` when plugin/theme files will be installed manually.
+When enabled through `wiki_init.py --obsidian`, the vault also gets
+`_dashboard.md`, `AGENTS.md`, `CLAUDE.md`, and `templates/agent-prompts/` so
+agents have a clear status page, command entrypoints, and safety reminders.
+Refresh the dashboard after pipeline work with:
+
+```bash
+uv run python scripts/wiki_status.py my-llm-wiki --write-dashboard --force
+```
 
 Then add a paper:
 
@@ -180,7 +189,10 @@ Open `my-llm-wiki/` in [Obsidian](https://obsidian.md) if you want graph view,
 backlinks, tag navigation, local search, custom folder ordering, and a
 `raw/inbox/` area for unprocessed material. Obsidian is an experience layer:
 source QA, claim extraction, semantic QA, contradiction checks, and query
-writeback still run through the open-llm-wiki gates.
+writeback still run through the open-llm-wiki gates. The optional homepage is
+`_dashboard.md`, which surfaces raw inbox items, drafts, stable sources, review
+queues, recent reports, common commands, prompt templates, and the safe
+proposal-first writeback flow.
 
 ## Safety Boundaries
 
@@ -230,6 +242,7 @@ uv run python -m skills_ref.cli validate skills/query-writeback
 uv run python -m skills_ref.cli validate skills/wiki-lint
 uv run python scripts/check_quality.py
 uv run python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
+uv run python scripts/wiki_status.py examples/minimal-vault
 uv run python scripts/wiki_obsidian_setup.py examples/minimal-vault --dry-run --skip-downloads
 uv run python scripts/wiki_eval.py
 bash -n setup.sh

@@ -1,6 +1,7 @@
 ---
 sorting-spec: |-
   target-folder: /
+  _dashboard.md
   index.md
   sources
   drafts
@@ -12,6 +13,7 @@ sorting-spec: |-
   assets
   assets/excalidraw
   templates
+  templates/agent-prompts
   _state
   log.md
   SCHEMA.md

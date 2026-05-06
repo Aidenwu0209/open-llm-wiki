@@ -126,6 +126,7 @@ def check_docs() -> None:
         "scripts/wiki_obsidian_setup.py",
         "scripts/wiki_semantic_qa.py",
         "scripts/wiki_search.py",
+        "scripts/wiki_status.py",
         "scripts/wiki_writeback.py",
         "scripts/wiki_eval.py",
         "obsidian/app.json",
@@ -133,6 +134,13 @@ def check_docs() -> None:
         "obsidian/hotkeys.json",
         "obsidian/plugin-manifest.json",
         "obsidian/sortspec.md",
+        "templates/agent-prompts/ingest-one-source.md",
+        "templates/agent-prompts/query-wiki.md",
+        "templates/agent-prompts/propose-writeback.md",
+        "templates/agent-prompts/run-lint.md",
+        "templates/agent-prompts/science-review.md",
+        "templates/agent-prompts/concept-revision.md",
+        "templates/agent-prompts/graph-export.md",
     ]
     for item in required:
         if not (ROOT / item).exists():
@@ -281,6 +289,26 @@ def check_obsidian_setup_layer() -> None:
         for item in ["raw/inbox", "sortspec.md", ".obsidian/.gitignore", ".open-llm-wiki/obsidian/plugin-manifest.json"]:
             if not (vault / item).exists():
                 fail(f"Obsidian setup missing {item}")
+        for item in [
+            "_dashboard.md",
+            "AGENTS.md",
+            "CLAUDE.md",
+            ".open-llm-wiki/scripts/wiki_status.py",
+            "templates/agent-prompts/ingest-one-source.md",
+            "templates/agent-prompts/propose-writeback.md",
+        ]:
+            if not (vault / item).exists():
+                fail(f"Obsidian init missing {item}")
+        dashboard = read(vault / "_dashboard.md")
+        for text in ["Pipeline Status", "Review Queue", "Agent Prompt Templates", "Common Runtime Commands", "Safe Write Flow"]:
+            if text not in dashboard:
+                print(dashboard)
+                fail(f"Obsidian dashboard missing {text!r}")
+        homepage_data = vault / ".obsidian" / "plugins" / "homepage" / "data.json"
+        if homepage_data.exists():
+            homepage = json.loads(read(homepage_data))
+            if homepage.get("homepage") != "_dashboard":
+                fail("Obsidian homepage default must point to _dashboard")
 
         lint_result = subprocess.run(
             [sys.executable, "scripts/wiki_lint.py", str(vault), "--obsidian", "--fail-on", "p1"],
@@ -318,6 +346,81 @@ def check_obsidian_setup_layer() -> None:
         rerun_plugins = json.loads(read(vault / ".obsidian" / "community-plugins.json"))
         if len(rerun_plugins) != len(set(rerun_plugins)):
             fail("Obsidian setup rerun duplicated plugin ids")
+
+
+def check_status_dashboard_layer() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/wiki_init.py",
+                str(vault),
+                "--repo-root",
+                str(ROOT),
+                "--obsidian",
+                "--obsidian-skip-downloads",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("status dashboard test vault initialization failed")
+
+        status_result = subprocess.run(
+            [sys.executable, "scripts/wiki_status.py", str(vault)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if status_result.returncode != 0:
+            print(status_result.stdout)
+            fail("wiki_status.py failed on an initialized vault")
+        for text in ["Raw inbox", "Draft source pages", "Science review queue", "Agent Prompt Templates"]:
+            if text not in status_result.stdout:
+                print(status_result.stdout)
+                fail(f"wiki_status.py output missing {text!r}")
+
+        existing = subprocess.run(
+            [sys.executable, "scripts/wiki_status.py", str(vault), "--write-dashboard"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if existing.returncode == 0:
+            print(existing.stdout)
+            fail("wiki_status.py overwrote an existing dashboard without --force")
+        if "without --force" not in existing.stdout:
+            print(existing.stdout)
+            fail("wiki_status.py dashboard overwrite refusal did not explain --force")
+
+        forced = subprocess.run(
+            [sys.executable, "scripts/wiki_status.py", str(vault), "--write-dashboard", "--force"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if forced.returncode != 0:
+            print(forced.stdout)
+            fail("wiki_status.py --write-dashboard --force failed")
+
+        outside = Path(tmp) / "outside.md"
+        expect_command_failure(
+            [sys.executable, "scripts/wiki_status.py", str(vault), "--write-dashboard", "--output", str(outside)],
+            "dashboard output must stay inside the vault",
+            "wiki_status.py accepted dashboard output outside the vault",
+        )
+        expect_command_failure(
+            [sys.executable, "scripts/wiki_status.py", str(vault), "--write-dashboard", "--output", "sources/status.md"],
+            "dashboard output must not rewrite raw, source, draft, concept, claim, report, or state files",
+            "wiki_status.py accepted a dashboard output under sources/",
+        )
 
 
 def check_claim_extraction() -> None:
@@ -556,6 +659,7 @@ def run_runtime_checks() -> None:
         [sys.executable, "scripts/pdf_to_markdown.py", "--help"],
         [sys.executable, "scripts/wiki_obsidian_setup.py", "--help"],
         [sys.executable, "scripts/wiki_eval.py"],
+        [sys.executable, "scripts/wiki_status.py", "--help"],
     ]
     for command in commands:
         result = subprocess.run(command, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -1478,6 +1582,7 @@ def main() -> None:
     check_minimal_vault()
     check_vault_init_obsidian_graph_filter()
     check_obsidian_setup_layer()
+    check_status_dashboard_layer()
     check_claim_extraction()
     check_semantic_qa_qualitative_metric_placeholder()
     check_setup_script()

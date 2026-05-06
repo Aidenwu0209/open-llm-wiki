@@ -40,6 +40,7 @@ SOURCE_FIELDS = {"id", "title", "status", "created", "updated", "source", "tags"
 CONCEPT_FIELDS = {"id", "title", "created", "updated"}
 STALE_WORDS = ("latest", "current", "state of the art", "sota", "now")
 OBSIDIAN_SORTSPEC_ENTRIES = [
+    "_dashboard.md",
     "index.md",
     "sources",
     "drafts",
@@ -48,6 +49,7 @@ OBSIDIAN_SORTSPEC_ENTRIES = [
     "qa-reports",
     "raw",
     "templates",
+    "templates/agent-prompts",
     "_state",
 ]
 

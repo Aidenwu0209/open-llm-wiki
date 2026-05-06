@@ -95,6 +95,10 @@ def main() -> int:
 
     vault = args.vault.resolve()
     run([sys.executable, "scripts/wiki_lint.py", str(vault), "--fail-on", "p1"])
+    status_output = run([sys.executable, "scripts/wiki_status.py", str(vault)])
+    for expected in ["Pipeline Status", "Agent Prompt Templates", "Common Runtime Commands", "Safe Write Flow"]:
+        if expected not in status_output:
+            raise SystemExit(f"status eval output missing {expected!r}")
     search_output = run([sys.executable, "scripts/wiki_search.py", str(vault), "attention transformer", "--limit", "2"])
     if "Attention Is All You Need" not in search_output:
         raise SystemExit("search eval did not find expected source page")
@@ -169,6 +173,33 @@ def main() -> int:
         test_vault = Path(tmp) / "vault"
         run([sys.executable, "scripts/wiki_init.py", str(test_vault), "--repo-root", str(ROOT)])
         run([sys.executable, "scripts/wiki_lint.py", str(test_vault), "--fail-on", "p1"])
+
+        dashboard_vault = Path(tmp) / "dashboard-vault"
+        run(
+            [
+                sys.executable,
+                "scripts/wiki_init.py",
+                str(dashboard_vault),
+                "--repo-root",
+                str(ROOT),
+                "--obsidian",
+                "--obsidian-skip-downloads",
+            ]
+        )
+        if not (dashboard_vault / "_dashboard.md").exists():
+            raise SystemExit("status eval did not create an Obsidian dashboard during wiki_init --obsidian")
+        dashboard = (dashboard_vault / "_dashboard.md").read_text(encoding="utf-8")
+        if "Agent Prompt Templates" not in dashboard or "Safe Write Flow" not in dashboard:
+            raise SystemExit("status eval dashboard missing agent prompt or writeback guidance")
+        overwrite = subprocess.run(
+            [sys.executable, "scripts/wiki_status.py", str(dashboard_vault), "--write-dashboard"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if overwrite.returncode == 0:
+            raise SystemExit("status eval allowed dashboard overwrite without --force")
 
         missing_review_queue_vault = Path(tmp) / "missing-review-queue-vault"
         shutil.copytree(vault, missing_review_queue_vault)

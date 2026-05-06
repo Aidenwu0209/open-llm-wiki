@@ -34,6 +34,7 @@ jobs:
       - name: Run runtime commands
         run: |
           uv run python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
+          uv run python scripts/wiki_status.py examples/minimal-vault
           uv run python scripts/wiki_search.py examples/minimal-vault "attention transformer" --limit 2
           uv run python scripts/wiki_obsidian_setup.py examples/minimal-vault --dry-run --skip-downloads
           uv run python scripts/wiki_claims.py --help
@@ -46,6 +47,7 @@ jobs:
           uv run python scripts/wiki_queue.py --help
           uv run python scripts/wiki_science_review.py --help
           uv run python scripts/wiki_semantic_qa.py --help
+          uv run python scripts/wiki_status.py --help
           uv run python scripts/pdf_corpus_report.py --help
           uv run python scripts/pdf_corpus_to_markdown.py --help
           uv run python scripts/pdf_to_markdown.py --help

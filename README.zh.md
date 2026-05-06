@@ -62,6 +62,7 @@ Skill 负责判断和协调；runtime 脚本负责可重复检查：
 | --- | --- |
 | `scripts/wiki_init.py` | 初始化个人/团队 vault |
 | `scripts/wiki_obsidian_setup.py` | 增加可选 Obsidian profile，合并设置、插件、主题、收件箱和图表目录 |
+| `scripts/wiki_status.py` | 汇总 vault 健康状态，并可写入 Obsidian `_dashboard.md` |
 | `scripts/pdf_corpus_report.py` | 验证批量解析覆盖率、manifest、解析告警和语义命中 |
 | `scripts/pdf_corpus_to_markdown.py` | 批量将 PDF 文件夹转成 Markdown，并记录 TSV 审计日志 |
 | `scripts/pdf_to_markdown.py` | 通过可配置的 layout parsing API 将 PDF 转成 Markdown |
@@ -108,6 +109,13 @@ uv run python scripts/wiki_lint.py my-llm-wiki --obsidian --fail-on p1
 profile 包括 `minimal`、`research` 和 `full`。重复运行会合并 JSON 配置和
 community plugin 列表，不覆盖用户已有键。若希望手动安装插件/主题，使用
 `--skip-downloads`。
+通过 `wiki_init.py --obsidian` 启用时，vault 还会生成 `_dashboard.md`、
+`AGENTS.md`、`CLAUDE.md` 和 `templates/agent-prompts/`，让 Agent 直接看到
+状态页、常用命令入口和安全边界。流程跑完后可以刷新 dashboard：
+
+```bash
+uv run python scripts/wiki_status.py my-llm-wiki --write-dashboard --force
+```
 
 手动安装：
 
@@ -136,6 +144,8 @@ cp ~/papers/attention.pdf my-llm-wiki/raw/
 - QA report 和 contradiction report 是 append-only 审计记录。
 - Obsidian 只是阅读、搜索、导航和轻量编辑体验层，不能绕过 source QA、claim
   graph、semantic QA、contradiction scan 或 query writeback approval gate。
+  默认首页 `_dashboard.md` 会展示 raw inbox、drafts、stable sources、review
+  queue、最近报告、常用命令、Agent prompt templates 和 proposal-first 写回流程。
 
 ## 质量验证
 
@@ -146,6 +156,7 @@ uv run python -m skills_ref.cli validate skills/query-writeback
 uv run python -m skills_ref.cli validate skills/wiki-lint
 uv run python scripts/check_quality.py
 uv run python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
+uv run python scripts/wiki_status.py examples/minimal-vault
 uv run python scripts/wiki_obsidian_setup.py examples/minimal-vault --dry-run --skip-downloads
 uv run python scripts/wiki_eval.py
 bash -n setup.sh

@@ -53,9 +53,35 @@ RUNTIME_SCRIPTS = [
     "wiki_science_review.py",
     "wiki_semantic_qa.py",
     "wiki_search.py",
+    "wiki_status.py",
     "wiki_writeback.py",
 ]
 RUNTIME_RESOURCE_DIRS = ["obsidian"]
+AGENT_CONTEXT = """# open-llm-wiki Agent Context
+
+Read `SCHEMA.md` before editing this vault.
+
+## Boundaries
+
+- Work only inside this vault.
+- Treat `raw/` as immutable evidence.
+- Source pages start in `drafts/` and can move to `sources/` only after QA passes.
+- QA reports, contradiction reports, and review reports are append-only evidence about process state.
+- Do not fabricate human review, science review, second-model review, or approval.
+- Query writeback is proposal-first; apply only after explicit user approval.
+- Diagrams, canvases, and graph exports are navigation aids, not evidence sources.
+
+## Useful Commands
+
+```bash
+python .open-llm-wiki/scripts/wiki_status.py .
+python .open-llm-wiki/scripts/wiki_status.py . --write-dashboard --force
+python .open-llm-wiki/scripts/wiki_lint.py . --obsidian --fail-on p1
+python .open-llm-wiki/scripts/wiki_writeback.py . --target concepts/<id>.md --query "<query>" --body "<cited note>"
+```
+
+Use `templates/agent-prompts/` for common ingest, query, review, writeback, lint, concept revision, and graph export workflows.
+"""
 
 
 def copy_file(src: Path, dst: Path, force: bool) -> None:
@@ -156,6 +182,7 @@ def main() -> int:
 
     if args.obsidian:
         from wiki_obsidian_setup import setup_obsidian
+        from wiki_status import build_status, render_status, write_dashboard
 
         actions = setup_obsidian(
             vault,
@@ -164,6 +191,19 @@ def main() -> int:
             skip_downloads=args.obsidian_skip_downloads,
             force=args.force,
         )
+        write_file(vault / "AGENTS.md", AGENT_CONTEXT, args.force)
+        write_file(vault / "CLAUDE.md", AGENT_CONTEXT, args.force)
+        dashboard_path = vault / "_dashboard.md"
+        if dashboard_path.exists() and not args.force:
+            print(f"keeping existing file: {dashboard_path}")
+        else:
+            dashboard = write_dashboard(
+                vault,
+                Path("_dashboard.md"),
+                render_status(build_status(vault)),
+                force=args.force,
+            )
+            print(f"dashboard written to {dashboard}")
         print(f"obsidian profile {args.obsidian_profile} configured with {len(actions)} actions")
 
     if args.install_skills:

@@ -30,6 +30,12 @@ Optional rules to paste into a wiki vault's `AGENTS.md`.
   setup instead of hand-editing plugin lists.
 - Generate writeback diffs with `.open-llm-wiki/scripts/wiki_writeback.py`
   before applying them.
+- Use `.open-llm-wiki/scripts/wiki_status.py` to inspect vault health and
+  refresh `_dashboard.md` after ingest, review, grow, or approved writeback
+  work.
+- Treat `_dashboard.md` as generated status, not evidence or approval.
+- Use `templates/agent-prompts/` as reusable workflows, but keep the same raw,
+  QA, science review, and writeback approval boundaries.
 - Log every write in `log.md` using:
   `[YYYY-MM-DD HH:MM] action | target | agent | note`
 ```

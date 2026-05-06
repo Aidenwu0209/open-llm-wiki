@@ -34,6 +34,8 @@ The script:
 - initializes `index.md`, `log.md`, and `_state/id-counter.md`
 - installs the three skills into `~/.claude/skills/`
 - copies runtime scripts into `my-llm-wiki/.open-llm-wiki/scripts/`
+- when Obsidian is enabled, creates `_dashboard.md`, agent context files, and
+  reusable prompt templates under `templates/agent-prompts/`
 
 Override the skill directory when needed:
 
@@ -50,6 +52,9 @@ OPEN_LLM_WIKI_OBSIDIAN=1 OPEN_LLM_WIKI_OBSIDIAN_PROFILE=minimal bash setup.sh my
 Set `OPEN_LLM_WIKI_OBSIDIAN_SKIP_DOWNLOADS=1` when you want the vault settings,
 `raw/inbox/`, and sort order without downloading community plugins or the
 Minimal theme. Supported profiles are `minimal`, `research`, and `full`.
+Fresh Obsidian-enabled vaults open to `_dashboard.md`, which lists pipeline
+status, review queues, recent reports, common commands, and Agent prompt
+templates.
 
 ## Option B: Manual Setup
 
@@ -62,7 +67,7 @@ mkdir -p my-llm-wiki/{raw,sources,concepts,drafts,qa-reports,templates,_state,lo
 mkdir -p my-llm-wiki/claims
 mkdir -p my-llm-wiki/.open-llm-wiki/scripts
 cp open-llm-wiki/SCHEMA.md my-llm-wiki/
-cp open-llm-wiki/templates/* my-llm-wiki/templates/
+cp -R open-llm-wiki/templates/* my-llm-wiki/templates/
 cp open-llm-wiki/scripts/*.py my-llm-wiki/.open-llm-wiki/scripts/
 ```
 
@@ -225,6 +230,7 @@ If the vault has the optional Obsidian profile, include the Obsidian checks:
 
 ```bash
 python my-llm-wiki/.open-llm-wiki/scripts/wiki_lint.py my-llm-wiki --obsidian --fail-on p1
+python my-llm-wiki/.open-llm-wiki/scripts/wiki_status.py my-llm-wiki --write-dashboard --force
 ```
 
 To add Obsidian settings to an existing vault:
@@ -258,6 +264,7 @@ uv run python -m skills_ref.cli validate skills/query-writeback
 uv run python -m skills_ref.cli validate skills/wiki-lint
 uv run python scripts/check_quality.py
 uv run python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
+uv run python scripts/wiki_status.py examples/minimal-vault
 uv run python scripts/wiki_obsidian_setup.py examples/minimal-vault --dry-run --skip-downloads
 uv run python scripts/wiki_eval.py
 bash -n setup.sh

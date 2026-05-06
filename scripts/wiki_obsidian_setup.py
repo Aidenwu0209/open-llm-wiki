@@ -35,7 +35,7 @@ PLUGIN_DATA_DEFAULTS: dict[str, dict[str, Any]] = {
         "customSortContextSubmenu": True,
     },
     "homepage": {
-        "homepage": "index",
+        "homepage": "_dashboard",
         "openOnStartup": True,
         "openMode": "replace-all",
         "manualOpenMode": "replace-all",
@@ -299,7 +299,7 @@ def configure_plugin_data(
             continue
         plugin_dir = safe_child(vault, ".obsidian", "plugins", plugin_id)
         if not plugin_dir.exists() and not dry_run:
-            continue
+            plugin_dir.mkdir(parents=True, exist_ok=True)
         data_path = safe_child(vault, ".obsidian", "plugins", plugin_id, "data.json")
         merge_json_object(data_path, defaults, set(), force, dry_run, actions, f"{plugin_id} data.json")
 
