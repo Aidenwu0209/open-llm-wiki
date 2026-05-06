@@ -39,6 +39,17 @@ REQUIRED_FILES = [
 SOURCE_FIELDS = {"id", "title", "status", "created", "updated", "source", "tags"}
 CONCEPT_FIELDS = {"id", "title", "created", "updated"}
 STALE_WORDS = ("latest", "current", "state of the art", "sota", "now")
+OBSIDIAN_SORTSPEC_ENTRIES = [
+    "index.md",
+    "sources",
+    "drafts",
+    "concepts",
+    "claims",
+    "qa-reports",
+    "raw",
+    "templates",
+    "_state",
+]
 
 
 def parse_date(value: str) -> date | None:
@@ -213,7 +224,109 @@ def check_state_jsonl(vault: Path, findings: list[Finding]) -> None:
                 findings.append(Finding("P1", f"{relpath}:{number}", "state row is not valid JSON"))
 
 
-def lint(vault: Path) -> list[Finding]:
+def load_optional_json(path: Path, vault: Path, findings: list[Finding], expected_type: type) -> object | None:
+    try:
+        data = json.loads(read_text(path))
+    except json.JSONDecodeError as exc:
+        findings.append(Finding("P1", rel(path, vault), f"invalid JSON: {exc}"))
+        return None
+    if not isinstance(data, expected_type):
+        findings.append(Finding("P1", rel(path, vault), f"expected JSON {expected_type.__name__}"))
+        return None
+    return data
+
+
+def check_obsidian(vault: Path, findings: list[Finding]) -> None:
+    obsidian_dir = vault / ".obsidian"
+    if not obsidian_dir.exists():
+        findings.append(Finding("P2", ".obsidian", "Obsidian integration is not configured"))
+        return
+
+    app_path = obsidian_dir / "app.json"
+    if not app_path.exists():
+        findings.append(Finding("P2", ".obsidian/app.json", "Obsidian app settings are missing"))
+    else:
+        app = load_optional_json(app_path, vault, findings, dict)
+        if isinstance(app, dict) and app.get("communityPluginsEnabled") is not True:
+            findings.append(
+                Finding(
+                    "P2",
+                    ".obsidian/app.json",
+                    "communityPluginsEnabled is not true, so configured plugins may remain disabled",
+                    "run wiki_obsidian_setup.py or enable community plugins in Obsidian",
+                )
+            )
+
+    plugins_path = obsidian_dir / "community-plugins.json"
+    if not plugins_path.exists():
+        findings.append(Finding("P2", ".obsidian/community-plugins.json", "community plugin list is missing"))
+    else:
+        plugins = load_optional_json(plugins_path, vault, findings, list)
+        if isinstance(plugins, list):
+            seen: set[str] = set()
+            for plugin_id in plugins:
+                if not isinstance(plugin_id, str):
+                    findings.append(Finding("P1", ".obsidian/community-plugins.json", "plugin ids must be strings"))
+                    continue
+                if plugin_id in seen:
+                    findings.append(Finding("P2", ".obsidian/community-plugins.json", f"duplicate plugin id {plugin_id!r}"))
+                seen.add(plugin_id)
+                manifest = obsidian_dir / "plugins" / plugin_id / "manifest.json"
+                if not manifest.exists():
+                    findings.append(
+                        Finding(
+                            "P2",
+                            f".obsidian/plugins/{plugin_id}",
+                            "enabled plugin is missing manifest.json",
+                            "rerun wiki_obsidian_setup.py without --skip-downloads or install the plugin manually",
+                        )
+                    )
+
+    sortspec_path = vault / "sortspec.md"
+    if not sortspec_path.exists():
+        findings.append(Finding("P2", "sortspec.md", "Custom Sort sortspec is missing"))
+    else:
+        sortspec = read_text(sortspec_path)
+        missing = [item for item in OBSIDIAN_SORTSPEC_ENTRIES if item not in sortspec]
+        if missing:
+            findings.append(Finding("P2", "sortspec.md", f"sortspec missing core entries: {', '.join(missing)}"))
+
+    index_path = vault / "index.md"
+    if index_path.exists():
+        index = read_text(index_path)
+        missing_sections = [heading for heading in ["## Sources", "## Concepts"] if heading not in index]
+        if missing_sections:
+            findings.append(Finding("P2", "index.md", f"homepage index missing sections: {', '.join(missing_sections)}"))
+
+    inbox = vault / "raw" / "inbox"
+    if inbox.exists():
+        pending = [path for path in inbox.iterdir() if not path.name.startswith(".")]
+        if pending:
+            findings.append(Finding("P3", "raw/inbox", f"unprocessed inbox items: {len(pending)}"))
+
+    diagram_paths = []
+    if (vault / "canvas").exists():
+        diagram_paths.extend(sorted((vault / "canvas").glob("*.canvas")))
+    excalidraw_dir = vault / "assets" / "excalidraw"
+    if excalidraw_dir.exists():
+        diagram_paths.extend(sorted(excalidraw_dir.rglob("*.excalidraw.md")))
+        diagram_paths.extend(sorted(excalidraw_dir.rglob("*.excalidraw")))
+    if diagram_paths:
+        page_text = "\n".join(page.body for page in load_pages(vault, folders=("sources", "concepts")))
+        for diagram in diagram_paths:
+            diagram_rel = rel(diagram, vault)
+            if diagram.stem not in page_text and diagram_rel not in page_text:
+                findings.append(
+                    Finding(
+                        "P2",
+                        diagram_rel,
+                        "diagram is not referenced from a source or concept page",
+                        "link explanatory diagrams from cited source/concept pages",
+                    )
+                )
+
+
+def lint(vault: Path, obsidian: bool = False) -> list[Finding]:
     findings: list[Finding] = []
     check_structure(vault, findings)
     check_pages(vault, findings)
@@ -224,6 +337,8 @@ def lint(vault: Path) -> list[Finding]:
     check_claim_hygiene(vault, findings)
     check_claim_graph(vault, findings)
     check_state_jsonl(vault, findings)
+    if obsidian:
+        check_obsidian(vault, findings)
     return findings
 
 
@@ -242,10 +357,15 @@ def main() -> int:
         default="p1",
         help="Exit non-zero at this severity threshold: p0 only, p1 includes P0/P1, p2 includes P0/P1/P2, none never fails.",
     )
+    parser.add_argument(
+        "--obsidian",
+        action="store_true",
+        help="Also check optional Obsidian settings, plugin list, sortspec, inbox, and diagram references.",
+    )
     args = parser.parse_args()
 
     vault = args.vault.resolve()
-    findings = lint(vault)
+    findings = lint(vault, obsidian=args.obsidian)
 
     if args.format == "json":
         print(json_dump({"vault": str(vault), "findings": [item.as_dict() for item in findings]}))

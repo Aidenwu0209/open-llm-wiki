@@ -13,6 +13,7 @@ to other agents, but Claude Code is the default path.
 Optional:
 
 - PyMuPDF for local PDF parsing
+- Obsidian for graph view, backlinks, local search, and daily reading
 - `OPEN_LLM_WIKI_LAYOUT_TOKEN` for cloud PDF-to-Markdown conversion of
   layout-heavy documents
 
@@ -39,6 +40,16 @@ Override the skill directory when needed:
 ```bash
 OPEN_LLM_WIKI_SKILL_DIR="$HOME/.openclaw-autoclaw/skills" bash setup.sh my-llm-wiki
 ```
+
+Enable the optional Obsidian experience layer during setup:
+
+```bash
+OPEN_LLM_WIKI_OBSIDIAN=1 OPEN_LLM_WIKI_OBSIDIAN_PROFILE=minimal bash setup.sh my-llm-wiki
+```
+
+Set `OPEN_LLM_WIKI_OBSIDIAN_SKIP_DOWNLOADS=1` when you want the vault settings,
+`raw/inbox/`, and sort order without downloading community plugins or the
+Minimal theme. Supported profiles are `minimal`, `research`, and `full`.
 
 ## Option B: Manual Setup
 
@@ -210,6 +221,18 @@ Run the deterministic linter directly:
 python my-llm-wiki/.open-llm-wiki/scripts/wiki_lint.py my-llm-wiki --fail-on p1
 ```
 
+If the vault has the optional Obsidian profile, include the Obsidian checks:
+
+```bash
+python my-llm-wiki/.open-llm-wiki/scripts/wiki_lint.py my-llm-wiki --obsidian --fail-on p1
+```
+
+To add Obsidian settings to an existing vault:
+
+```bash
+python my-llm-wiki/.open-llm-wiki/scripts/wiki_obsidian_setup.py my-llm-wiki --profile minimal
+```
+
 ## Propose a Writeback Diff
 
 For long-lived team knowledge bases, preserve useful answers through reviewable
@@ -235,6 +258,7 @@ uv run python -m skills_ref.cli validate skills/query-writeback
 uv run python -m skills_ref.cli validate skills/wiki-lint
 uv run python scripts/check_quality.py
 uv run python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
+uv run python scripts/wiki_obsidian_setup.py examples/minimal-vault --dry-run --skip-downloads
 uv run python scripts/wiki_eval.py
 bash -n setup.sh
 ```

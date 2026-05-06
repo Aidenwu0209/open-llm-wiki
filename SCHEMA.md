@@ -8,12 +8,16 @@ Agents should read it before editing a wiki vault.
 ```text
 my-llm-wiki/
 |-- .open-llm-wiki/ # runtime scripts copied by setup/init
+|-- .obsidian/       # optional Obsidian settings when enabled
 |-- raw/             # original source files and parsed text
+|   `-- inbox/       # optional unprocessed material drop zone
 |-- drafts/          # source pages before QA approval
 |-- sources/         # stable source pages
 |-- concepts/        # evolving concept pages
 |-- qa-reports/      # append-only QA and contradiction reports
 |-- claims/          # normalized claim graph for semantic QA and growth
+|-- canvas/          # optional explanatory diagrams, not evidence
+|-- assets/          # optional Obsidian/diagram assets
 |-- log-archive/     # archived log entries by month
 |-- templates/       # source and concept templates
 |-- _state/          # counters and internal state
@@ -252,6 +256,30 @@ Allowed actions include:
 - prefer targeted edits over whole-page rewrites
 - list changed files in the final response
 
+## Optional Obsidian Layer
+
+Obsidian settings, plugins, themes, and diagrams are an experience layer for
+reading, search, navigation, backlinks, and light editing. They must not change
+the evidence model.
+
+Rules:
+
+- enable Obsidian only through explicit setup, such as
+  `wiki_obsidian_setup.py` or `wiki_init.py --obsidian`.
+- merge `.obsidian/*.json` settings; do not overwrite unrelated user keys.
+- prefer `[[wikilink]]` for internal wiki links.
+- important concept-page conclusions must cite source pages such as
+  `[[LLM-NNNN]]`.
+- `raw/inbox/` may hold unprocessed material, but it is not stable evidence
+  until ingest creates a draft/source page and registry entry.
+- `raw/` remains immutable even when files are visible in Obsidian.
+- `qa-reports/` remains append-only.
+- diagrams under `canvas/` or `assets/excalidraw/` are explanatory aids, not
+  evidence sources; link them from source or concept pages and keep evidence
+  citations next to the claims they illustrate.
+- Obsidian plugins must not bypass QA gates, science review, contradiction
+  checks, or query writeback approval.
+
 ## Runtime Commands
 
 The vault may contain runtime scripts at `.open-llm-wiki/scripts/`:
@@ -271,6 +299,8 @@ python .open-llm-wiki/scripts/wiki_queue.py . plan
 python .open-llm-wiki/scripts/wiki_concept_revision.py . --apply
 python .open-llm-wiki/scripts/wiki_grow.py . --discover-sources --plan-queue --queue-cadence weekly --science-review --apply-concept-revision
 python .open-llm-wiki/scripts/wiki_lint.py . --fail-on p1
+python .open-llm-wiki/scripts/wiki_lint.py . --obsidian --fail-on p1
 python .open-llm-wiki/scripts/wiki_search.py . "query terms"
+python .open-llm-wiki/scripts/wiki_obsidian_setup.py . --profile minimal --skip-downloads
 python .open-llm-wiki/scripts/wiki_writeback.py . --target concepts/page.md --query "..." --body "..."
 ```

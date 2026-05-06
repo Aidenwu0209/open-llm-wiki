@@ -59,6 +59,13 @@ uv sync --dev --locked
 - [ ] New vault includes `.open-llm-wiki/scripts/` with the runtime scripts.
 - [ ] Running `wiki_lint.py <new-vault> --fail-on p1` passes immediately after
       initialization.
+- [ ] `uv run python scripts/wiki_obsidian_setup.py <new-vault> --dry-run
+      --skip-downloads` reports planned Obsidian changes without writing files.
+- [ ] `uv run python scripts/wiki_init.py <new-vault> --repo-root .
+      --obsidian --obsidian-skip-downloads` creates `.obsidian/app.json`,
+      `.obsidian/community-plugins.json`, `raw/inbox/`, and `sortspec.md`.
+- [ ] `uv run python scripts/wiki_lint.py <new-vault> --obsidian --fail-on p1`
+      reports Obsidian status without P0/P1 findings.
 - [ ] Re-running initialization without `--force` does not overwrite existing
       user-edited files.
 - [ ] Re-running initialization with `--force` overwrites only intended runtime
@@ -378,6 +385,8 @@ uv sync --dev --locked
       high-risk claims.
 - [ ] Final lint passes with `--fail-on p1`.
 - [ ] The generated vault can be opened in Obsidian with usable backlinks.
+- [ ] Optional Obsidian profile does not replace source QA, claim graph,
+      semantic QA, contradiction scan, or query writeback approval gates.
 
 ## 20. Documentation And User Experience
 
@@ -395,6 +404,8 @@ uv sync --dev --locked
       approval.
 - [ ] Documentation explains that raw evidence is immutable and append-only
       reports are preferred.
+- [ ] Documentation explains how to enable the optional Obsidian profile and how
+      to run `wiki_lint.py --obsidian`.
 
 ## 21. GitHub And Release Readiness
 

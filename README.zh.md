@@ -61,6 +61,7 @@ Skill 负责判断和协调；runtime 脚本负责可重复检查：
 | Script | 用途 |
 | --- | --- |
 | `scripts/wiki_init.py` | 初始化个人/团队 vault |
+| `scripts/wiki_obsidian_setup.py` | 增加可选 Obsidian profile，合并设置、插件、主题、收件箱和图表目录 |
 | `scripts/pdf_corpus_report.py` | 验证批量解析覆盖率、manifest、解析告警和语义命中 |
 | `scripts/pdf_corpus_to_markdown.py` | 批量将 PDF 文件夹转成 Markdown，并记录 TSV 审计日志 |
 | `scripts/pdf_to_markdown.py` | 通过可配置的 layout parsing API 将 PDF 转成 Markdown |
@@ -91,6 +92,23 @@ less setup.sh
 bash setup.sh my-llm-wiki
 ```
 
+可选启用 Obsidian 体验层：
+
+```bash
+OPEN_LLM_WIKI_OBSIDIAN=1 OPEN_LLM_WIKI_OBSIDIAN_PROFILE=minimal bash setup.sh my-llm-wiki
+```
+
+也可以对已有 vault 单独启用，不会让核心 runtime 依赖 Obsidian：
+
+```bash
+uv run python scripts/wiki_obsidian_setup.py my-llm-wiki --profile minimal
+uv run python scripts/wiki_lint.py my-llm-wiki --obsidian --fail-on p1
+```
+
+profile 包括 `minimal`、`research` 和 `full`。重复运行会合并 JSON 配置和
+community plugin 列表，不覆盖用户已有键。若希望手动安装插件/主题，使用
+`--skip-downloads`。
+
 手动安装：
 
 ```bash
@@ -116,6 +134,8 @@ cp ~/papers/attention.pdf my-llm-wiki/raw/
 - Lint 默认只报告。
 - Cloud OCR 是可选能力；如果文档内容会离开本机，必须明确告知用户。
 - QA report 和 contradiction report 是 append-only 审计记录。
+- Obsidian 只是阅读、搜索、导航和轻量编辑体验层，不能绕过 source QA、claim
+  graph、semantic QA、contradiction scan 或 query writeback approval gate。
 
 ## 质量验证
 
@@ -126,6 +146,7 @@ uv run python -m skills_ref.cli validate skills/query-writeback
 uv run python -m skills_ref.cli validate skills/wiki-lint
 uv run python scripts/check_quality.py
 uv run python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
+uv run python scripts/wiki_obsidian_setup.py examples/minimal-vault --dry-run --skip-downloads
 uv run python scripts/wiki_eval.py
 bash -n setup.sh
 ```

@@ -49,11 +49,13 @@ RUNTIME_SCRIPTS = [
     "wiki_queue.py",
     "wiki_common.py",
     "wiki_lint.py",
+    "wiki_obsidian_setup.py",
     "wiki_science_review.py",
     "wiki_semantic_qa.py",
     "wiki_search.py",
     "wiki_writeback.py",
 ]
+RUNTIME_RESOURCE_DIRS = ["obsidian"]
 
 
 def copy_file(src: Path, dst: Path, force: bool) -> None:
@@ -90,6 +92,22 @@ def main() -> int:
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--skill-dir", type=Path)
     parser.add_argument("--install-skills", action="store_true")
+    parser.add_argument(
+        "--obsidian",
+        action="store_true",
+        help="Install the optional Obsidian experience layer after initializing the vault.",
+    )
+    parser.add_argument(
+        "--obsidian-profile",
+        choices=["minimal", "research", "full"],
+        default="minimal",
+        help="Obsidian plugin/theme profile to install when --obsidian is set.",
+    )
+    parser.add_argument(
+        "--obsidian-skip-downloads",
+        action="store_true",
+        help="Configure Obsidian without downloading community plugins or themes.",
+    )
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
 
@@ -133,6 +151,20 @@ def main() -> int:
     runtime_dir = vault / ".open-llm-wiki" / "scripts"
     for script in RUNTIME_SCRIPTS:
         copy_file(repo / "scripts" / script, runtime_dir / script, args.force)
+    for resource_dir in RUNTIME_RESOURCE_DIRS:
+        copy_tree_contents(repo / resource_dir, vault / ".open-llm-wiki" / resource_dir, args.force)
+
+    if args.obsidian:
+        from wiki_obsidian_setup import setup_obsidian
+
+        actions = setup_obsidian(
+            vault,
+            repo / "obsidian",
+            profile=args.obsidian_profile,
+            skip_downloads=args.obsidian_skip_downloads,
+            force=args.force,
+        )
+        print(f"obsidian profile {args.obsidian_profile} configured with {len(actions)} actions")
 
     if args.install_skills:
         if not args.skill_dir:

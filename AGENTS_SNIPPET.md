@@ -13,11 +13,21 @@ Optional rules to paste into a wiki vault's `AGENTS.md`.
 - A source page can move to `sources/` only after independent QA passes.
 - QA reports and contradiction reports are append-only.
 - Every important claim in a concept page must cite a source.
+- Prefer `[[wikilink]]` for internal links when editing an Obsidian-enabled
+  vault.
+- Treat `raw/inbox/` as unprocessed material; do not promote it to stable
+  evidence without ingest, QA, and registry updates.
+- Diagrams under `canvas/` or `assets/excalidraw/` are explanatory aids, not
+  evidence sources.
+- Merge `.obsidian/*.json` changes and preserve user keys when editing
+  Obsidian settings.
 - Query writeback is read-only by default; ask before writing unless the user
   has pre-authorized automatic wiki growth.
 - Lint is report-only by default; ask before applying fixes.
 - Prefer `.open-llm-wiki/scripts/wiki_lint.py` and
   `.open-llm-wiki/scripts/wiki_search.py` when they are available.
+- Use `.open-llm-wiki/scripts/wiki_obsidian_setup.py` for optional Obsidian
+  setup instead of hand-editing plugin lists.
 - Generate writeback diffs with `.open-llm-wiki/scripts/wiki_writeback.py`
   before applying them.
 - Log every write in `log.md` using:

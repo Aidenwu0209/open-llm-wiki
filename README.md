@@ -69,6 +69,7 @@ The skills coordinate judgment. The runtime scripts handle repeatable checks:
 | Script | Purpose |
 | --- | --- |
 | `scripts/wiki_init.py` | initialize a portable personal/team vault |
+| `scripts/wiki_obsidian_setup.py` | add an optional Obsidian profile with merged settings, plugins, theme, inbox, and diagram folders |
 | `scripts/pdf_corpus_report.py` | verify converted corpus coverage, manifests, parser warnings, and semantic hits |
 | `scripts/pdf_corpus_to_markdown.py` | batch-convert a PDF folder with retries, skip logic, and a TSV audit log |
 | `scripts/pdf_to_markdown.py` | convert PDFs to Markdown through a configurable layout-parsing API |
@@ -108,6 +109,24 @@ git clone https://github.com/AIwork4me/open-llm-wiki.git
 mkdir -p ~/.claude/skills
 cp -R open-llm-wiki/skills/* ~/.claude/skills/
 ```
+
+Optional Obsidian layer:
+
+```bash
+OPEN_LLM_WIKI_OBSIDIAN=1 OPEN_LLM_WIKI_OBSIDIAN_PROFILE=minimal bash setup.sh my-llm-wiki
+```
+
+From a checkout, the same layer can be applied to an existing vault without
+making Obsidian a runtime dependency:
+
+```bash
+uv run python scripts/wiki_obsidian_setup.py my-llm-wiki --profile minimal
+uv run python scripts/wiki_lint.py my-llm-wiki --obsidian --fail-on p1
+```
+
+Profiles are `minimal`, `research`, and `full`. Re-runs merge JSON settings and
+community plugin lists without overwriting existing user keys. Use
+`--skip-downloads` when plugin/theme files will be installed manually.
 
 Then add a paper:
 
@@ -158,7 +177,10 @@ the claim is explicitly marked `science_review: approved`, so uncertain metrics
 do not become durable synthesis by accident.
 
 Open `my-llm-wiki/` in [Obsidian](https://obsidian.md) if you want graph view,
-backlinks, and tag navigation.
+backlinks, tag navigation, local search, custom folder ordering, and a
+`raw/inbox/` area for unprocessed material. Obsidian is an experience layer:
+source QA, claim extraction, semantic QA, contradiction checks, and query
+writeback still run through the open-llm-wiki gates.
 
 ## Safety Boundaries
 
@@ -183,6 +205,7 @@ backlinks, and tag navigation.
 open-llm-wiki/
 |-- setup.sh
 |-- SCHEMA.md
+|-- obsidian/
 |-- skills/
 |   |-- wiki-ingest/
 |   |-- query-writeback/
@@ -207,6 +230,7 @@ uv run python -m skills_ref.cli validate skills/query-writeback
 uv run python -m skills_ref.cli validate skills/wiki-lint
 uv run python scripts/check_quality.py
 uv run python scripts/wiki_lint.py examples/minimal-vault --fail-on p1
+uv run python scripts/wiki_obsidian_setup.py examples/minimal-vault --dry-run --skip-downloads
 uv run python scripts/wiki_eval.py
 bash -n setup.sh
 ```

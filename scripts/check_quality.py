@@ -123,10 +123,16 @@ def check_docs() -> None:
         "scripts/wiki_common.py",
         "scripts/wiki_init.py",
         "scripts/wiki_lint.py",
+        "scripts/wiki_obsidian_setup.py",
         "scripts/wiki_semantic_qa.py",
         "scripts/wiki_search.py",
         "scripts/wiki_writeback.py",
         "scripts/wiki_eval.py",
+        "obsidian/app.json",
+        "obsidian/appearance.json",
+        "obsidian/hotkeys.json",
+        "obsidian/plugin-manifest.json",
+        "obsidian/sortspec.md",
     ]
     for item in required:
         if not (ROOT / item).exists():
@@ -212,6 +218,106 @@ def check_vault_init_obsidian_graph_filter() -> None:
         for folder in ["raw", "templates", "qa-reports", "_state", "claims"]:
             if not (vault / folder).is_dir():
                 fail(f"vault initialization removed required directory: {folder}")
+
+
+def check_obsidian_setup_layer() -> None:
+    for item in ["app.json", "appearance.json", "hotkeys.json", "plugin-manifest.json"]:
+        try:
+            json.loads(read(ROOT / "obsidian" / item))
+        except json.JSONDecodeError as exc:
+            fail(f"obsidian/{item} is not valid JSON: {exc}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        dry_vault = Path(tmp) / "dry-vault"
+        dry_result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/wiki_obsidian_setup.py",
+                str(dry_vault),
+                "--dry-run",
+                "--skip-downloads",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if dry_result.returncode != 0:
+            print(dry_result.stdout)
+            fail("Obsidian setup dry-run failed")
+        if dry_vault.exists():
+            print(dry_result.stdout)
+            fail("Obsidian setup dry-run wrote files")
+
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/wiki_init.py",
+                str(vault),
+                "--repo-root",
+                str(ROOT),
+                "--obsidian",
+                "--obsidian-skip-downloads",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("wiki_init.py --obsidian failed")
+
+        app = json.loads(read(vault / ".obsidian" / "app.json"))
+        if app.get("communityPluginsEnabled") is not True:
+            fail("Obsidian app.json did not enable community plugins")
+        plugins = json.loads(read(vault / ".obsidian" / "community-plugins.json"))
+        for plugin_id in ["dataview", "omnisearch", "custom-sort", "obsidian42-strange-new-worlds", "homepage"]:
+            if plugin_id not in plugins:
+                fail(f"minimal Obsidian profile did not enable {plugin_id}")
+        if len(plugins) != len(set(plugins)):
+            fail("Obsidian community plugin list contains duplicates")
+        for item in ["raw/inbox", "sortspec.md", ".obsidian/.gitignore", ".open-llm-wiki/obsidian/plugin-manifest.json"]:
+            if not (vault / item).exists():
+                fail(f"Obsidian setup missing {item}")
+
+        lint_result = subprocess.run(
+            [sys.executable, "scripts/wiki_lint.py", str(vault), "--obsidian", "--fail-on", "p1"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if lint_result.returncode != 0:
+            print(lint_result.stdout)
+            fail("wiki_lint.py --obsidian produced P0/P1 findings for an initialized vault")
+
+        appearance_path = vault / ".obsidian" / "appearance.json"
+        appearance = json.loads(read(appearance_path))
+        appearance["cssTheme"] = "User Theme"
+        appearance_path.write_text(json.dumps(appearance) + "\n", encoding="utf-8")
+        rerun = subprocess.run(
+            [
+                sys.executable,
+                "scripts/wiki_obsidian_setup.py",
+                str(vault),
+                "--skip-downloads",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if rerun.returncode != 0:
+            print(rerun.stdout)
+            fail("Obsidian setup rerun failed")
+        rerun_appearance = json.loads(read(appearance_path))
+        if rerun_appearance.get("cssTheme") != "User Theme":
+            fail("Obsidian setup overwrote an existing user theme")
+        rerun_plugins = json.loads(read(vault / ".obsidian" / "community-plugins.json"))
+        if len(rerun_plugins) != len(set(rerun_plugins)):
+            fail("Obsidian setup rerun duplicated plugin ids")
 
 
 def check_claim_extraction() -> None:
@@ -448,6 +554,7 @@ def run_runtime_checks() -> None:
         [sys.executable, "scripts/pdf_corpus_report.py", "--help"],
         [sys.executable, "scripts/pdf_corpus_to_markdown.py", "--help"],
         [sys.executable, "scripts/pdf_to_markdown.py", "--help"],
+        [sys.executable, "scripts/wiki_obsidian_setup.py", "--help"],
         [sys.executable, "scripts/wiki_eval.py"],
     ]
     for command in commands:
@@ -1370,6 +1477,7 @@ def main() -> None:
     check_docs()
     check_minimal_vault()
     check_vault_init_obsidian_graph_filter()
+    check_obsidian_setup_layer()
     check_claim_extraction()
     check_semantic_qa_qualitative_metric_placeholder()
     check_setup_script()

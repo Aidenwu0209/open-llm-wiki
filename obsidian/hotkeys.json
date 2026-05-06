@@ -1,0 +1,38 @@
+{
+  "omnisearch:show-modal": [
+    {
+      "modifiers": ["Mod", "Shift"],
+      "key": "F"
+    }
+  ],
+  "app:go-back": [
+    {
+      "modifiers": ["Mod"],
+      "key": "ArrowLeft"
+    }
+  ],
+  "app:go-forward": [
+    {
+      "modifiers": ["Mod"],
+      "key": "ArrowRight"
+    }
+  ],
+  "graph:open": [
+    {
+      "modifiers": ["Mod", "Shift"],
+      "key": "G"
+    }
+  ],
+  "app:toggle-left-sidebar": [
+    {
+      "modifiers": ["Mod", "Shift"],
+      "key": "B"
+    }
+  ],
+  "app:toggle-right-sidebar": [
+    {
+      "modifiers": ["Mod", "Shift"],
+      "key": "L"
+    }
+  ]
+}

@@ -1,0 +1,116 @@
+{
+  "profiles": {
+    "minimal": [
+      "dataview",
+      "omnisearch",
+      "custom-sort",
+      "obsidian42-strange-new-worlds",
+      "homepage"
+    ],
+    "research": [
+      "dataview",
+      "omnisearch",
+      "custom-sort",
+      "obsidian42-strange-new-worlds",
+      "homepage",
+      "obsidian-git",
+      "obsidian-quiet-outline",
+      "obsidian-excalidraw-plugin",
+      "open-in-terminal"
+    ],
+    "full": [
+      "dataview",
+      "omnisearch",
+      "custom-sort",
+      "obsidian42-strange-new-worlds",
+      "homepage",
+      "obsidian-git",
+      "obsidian-quiet-outline",
+      "obsidian-excalidraw-plugin",
+      "open-in-terminal",
+      "claudian",
+      "templater-obsidian",
+      "obsidian-linter",
+      "editing-toolbar",
+      "tag-wrangler",
+      "obsidian-minimal-settings",
+      "obsidian-hider",
+      "darlal-switcher-plus"
+    ]
+  },
+  "plugins": {
+    "claudian": {
+      "repo": "YishenTu/claudian",
+      "desc": "AI agent workflow inside the vault"
+    },
+    "dataview": {
+      "repo": "blacksmithgu/obsidian-dataview",
+      "desc": "Query and display metadata from notes"
+    },
+    "templater-obsidian": {
+      "repo": "SilentVoid13/Templater",
+      "desc": "Templates and automation"
+    },
+    "obsidian-git": {
+      "repo": "Vinzent03/obsidian-git",
+      "desc": "Git version control for vaults",
+      "requires": "git"
+    },
+    "obsidian-linter": {
+      "repo": "platers/obsidian-linter",
+      "desc": "Markdown linting"
+    },
+    "tag-wrangler": {
+      "repo": "pjeby/tag-wrangler",
+      "desc": "Tag management"
+    },
+    "obsidian42-strange-new-worlds": {
+      "repo": "TfTHacker/obsidian42-strange-new-worlds",
+      "desc": "Backlink context while reading"
+    },
+    "homepage": {
+      "repo": "mirnovov/obsidian-homepage",
+      "desc": "Set index.md as a vault homepage"
+    },
+    "custom-sort": {
+      "repo": "SebastianMC/obsidian-custom-sort",
+      "desc": "Custom file sorting"
+    },
+    "omnisearch": {
+      "repo": "scambier/obsidian-omnisearch",
+      "desc": "Fast local search across large vaults"
+    },
+    "darlal-switcher-plus": {
+      "repo": "darlal/obsidian-switcher-plus",
+      "desc": "Quick switcher with headings"
+    },
+    "obsidian-minimal-settings": {
+      "repo": "kepano/obsidian-minimal-settings",
+      "desc": "Minimal theme settings"
+    },
+    "obsidian-hider": {
+      "repo": "kepano/obsidian-hider",
+      "desc": "Hide distracting Obsidian UI elements"
+    },
+    "editing-toolbar": {
+      "repo": "PKM-er/obsidian-editing-toolbar",
+      "desc": "Editing toolbar and focus controls"
+    },
+    "obsidian-excalidraw-plugin": {
+      "repo": "zsviczian/obsidian-excalidraw-plugin",
+      "desc": "Research diagrams and sketches"
+    },
+    "obsidian-quiet-outline": {
+      "repo": "guopenghui/obsidian-quiet-outline",
+      "desc": "Enhanced outline navigation"
+    },
+    "open-in-terminal": {
+      "repo": "yonatan-reicher/obsidian-open-in-terminal",
+      "desc": "Open the vault from Obsidian in a terminal"
+    }
+  },
+  "theme": {
+    "repo": "kepano/obsidian-minimal",
+    "id": "Minimal"
+  }
+}
