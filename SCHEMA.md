@@ -177,16 +177,51 @@ but concept-page conclusions and QA reports remain reviewable Markdown records.
 
 ## Source Discovery And Deduplication
 
-`_state/source-registry.jsonl` records discovered or ingested source candidates.
-Rows may come from `raw/`, existing `sources/`, or optional arXiv API discovery.
+`_state/source-registry.jsonl` is the single source of truth for ingest identity
+and status. Desktop clients and external tools should consume this registry instead
+of maintaining a parallel registry. The runtime owns the registry.
+
+Each registry row is a JSON object with these fields:
+
+Required fields:
+- `source_uuid`: unique stable identifier (UUID)
+- `source_id`: `LLM-NNNN` allocated from `_state/id-counter.md`
+- `raw_hash`: SHA-256 of the raw evidence file
+- `raw_path`: relative path to the raw evidence under the vault
+- `status`: one of the valid statuses below
+
+Optional fields:
+- `duplicate_of`: `source_id` of the original when this row is a duplicate
+- `last_error`: error message when status is `failed`
+- `title`, `arxiv`, `doi`, `sha256`, `title_key`: discovery metadata
+- `kind`: `raw`, `source`, or `arxiv`
+- `updated`, `created`: timestamps
+- `tags`, `concepts`: extracted metadata
+
+Valid statuses:
+`candidate`, `queued`, `parsed`, `chunked`, `drafted`, `qa_passed`,
+`published`, `stale`, `failed`, `archived`
+
 Deduplication keys include:
 
 - `arxiv`
 - `doi`
-- `sha256`
+- `sha256` / `raw_hash`
 - `title_key`
 
-Discovery is advisory. It must not delete raw files or source pages.
+When a duplicate raw hash is detected, the new row gets `duplicate_of` set to
+the original `source_id` and `status: archived`. It must not produce a duplicate
+source page.
+
+Failed parse, draft, or QA stages must write `status: failed` and `last_error`
+to the registry row. Failed rows remain in the registry and the ingest plan.
+
+`source_id` allocation is a transaction against `_state/id-counter.md`.
+IDs must never be reused. Reordering, renaming, or resuming raw files must not
+change already-assigned source IDs.
+
+Discovery and discovery reports are advisory. Discovery must not delete raw files
+or source pages.
 
 ## Growth Queue
 

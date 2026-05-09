@@ -12,6 +12,17 @@ from datetime import datetime
 from pathlib import Path
 
 from wiki_common import ensure_within, read_text, write_text
+from wiki_source_registry import (
+    allocate_source_id,
+    candidates_for_ingest,
+    find_by_raw_hash,
+    find_by_raw_path,
+    load_registry,
+    raw_hash,
+    register_raw,
+    save_registry,
+    update_status,
+)
 
 
 CONCEPTS = {
@@ -500,29 +511,96 @@ def main() -> int:
     if not combined_files:
         raise SystemExit("no raw/*_markdown/combined.md files found")
 
+    registry_path = ensure_within(dirs["_state"] / "source-registry.jsonl", dirs["_state"], "registry must stay under _state/")
+
+    # Ensure every raw file has a registry entry with a stable source_id
+    registry_rows = load_registry(registry_path)
+    for combined in combined_files:
+        raw_rel = combined.relative_to(vault).as_posix()
+        stem = combined.parent.name.removesuffix("_markdown")
+        pdf_path = vault / "raw" / f"{stem}.pdf"
+        pdf_rel = pdf_path.relative_to(vault).as_posix() if pdf_path.exists() else f"raw/{stem}.pdf"
+        existing = find_by_raw_path(registry_rows, raw_rel)
+        if existing is None:
+            h = raw_hash(combined)
+            dup = find_by_raw_hash(registry_rows, h)
+            if dup is not None:
+                # Duplicate raw content: register as archived pointing to original
+                from wiki_source_registry import mark_duplicate as _mark_dup
+                dup_uuid = existing
+                source_uuid_new = __import__("uuid").uuid4().hex
+                now_str = args.today
+                source_id_new = allocate_source_id(dirs["_state"])
+                new_row = {
+                    "source_uuid": source_uuid_new,
+                    "source_id": source_id_new,
+                    "raw_hash": h,
+                    "raw_path": raw_rel,
+                    "status": "archived",
+                    "duplicate_of": dup["source_id"],
+                    "title": stem.replace("_", " "),
+                    "kind": "raw",
+                    "created": now_str,
+                    "updated": now_str,
+                }
+                registry_rows.append(new_row)
+            else:
+                reg = register_raw(
+                    registry_path, dirs["_state"],
+                    raw_path=raw_rel,
+                    raw_file=combined,
+                    title=stem.replace("_", " "),
+                    arxiv=arxiv_from_name(combined.parent.name),
+                    kind="raw",
+                )
+                registry_rows = load_registry(registry_path)
+        else:
+            # Update hash if file changed
+            h = raw_hash(combined)
+            if existing.get("raw_hash") != h:
+                existing["raw_hash"] = h
+                existing["updated"] = args.today
+                save_registry(registry_path, registry_rows)
+
+    save_registry(registry_path, registry_rows)
+    registry_rows = load_registry(registry_path)
+
     items: list[Item] = []
     concept_items: dict[str, list[Item]] = defaultdict(list)
-    for offset, combined in enumerate(combined_files, 1):
-        source_id = f"LLM-{offset:04d}"
+    for combined in combined_files:
+        raw_rel = combined.relative_to(vault).as_posix()
+        reg_row = find_by_raw_path(registry_rows, raw_rel)
+        if reg_row is None:
+            continue
+        if reg_row.get("duplicate_of"):
+            continue
+        source_id = reg_row["source_id"]
         source_path = ensure_within(dirs["sources"] / f"{source_id}.md", dirs["sources"], "source output must stay under sources/")
         if args.resume and source_path.exists():
             continue
-        item = build_item(vault, source_id, combined, args.today, concept_defs)
-        items.append(item)
-        draft = source_text(item, "draft", args.today)
-        draft_path = ensure_within(dirs["drafts"] / f"{source_id}.md", dirs["drafts"], "draft output must stay under drafts/")
-        write_text(draft_path, draft)
-        passed, qa = qa_text(item, draft, args.today)
-        write_text(ensure_within(dirs["qa-reports"] / f"{source_id}.md", dirs["qa-reports"], "QA output must stay under qa-reports/"), qa)
-        if passed:
-            write_text(source_path, source_text(item, "stable", args.today))
-            draft_path.unlink(missing_ok=True)
-            write_text(
-                ensure_within(dirs["qa-reports"] / f"{source_id}-contradiction.md", dirs["qa-reports"], "QA output must stay under qa-reports/"),
-                contradiction_text(item, args.today),
-            )
-            for concept in item.concepts:
-                concept_items[concept].append(item)
+        try:
+            item = build_item(vault, source_id, combined, args.today, concept_defs)
+            items.append(item)
+            draft = source_text(item, "draft", args.today)
+            draft_path = ensure_within(dirs["drafts"] / f"{source_id}.md", dirs["drafts"], "draft output must stay under drafts/")
+            write_text(draft_path, draft)
+            passed, qa = qa_text(item, draft, args.today)
+            write_text(ensure_within(dirs["qa-reports"] / f"{source_id}.md", dirs["qa-reports"], "QA output must stay under qa-reports/"), qa)
+            if passed:
+                write_text(source_path, source_text(item, "stable", args.today))
+                draft_path.unlink(missing_ok=True)
+                write_text(
+                    ensure_within(dirs["qa-reports"] / f"{source_id}-contradiction.md", dirs["qa-reports"], "QA output must stay under qa-reports/"),
+                    contradiction_text(item, args.today),
+                )
+                update_status(registry_path, reg_row["source_uuid"], "published", kind="source", tags=item.tags, concepts=item.concepts)
+                for concept in item.concepts:
+                    concept_items[concept].append(item)
+            else:
+                update_status(registry_path, reg_row["source_uuid"], "failed", last_error="QA score below 7.0")
+        except Exception as exc:
+            update_status(registry_path, reg_row["source_uuid"], "failed", last_error=str(exc))
+            raise
 
     for concept_id, concept_sources in sorted(concept_items.items()):
         concept_path = ensure_within(dirs["concepts"] / f"{concept_id}.md", dirs["concepts"], "concept output must stay under concepts/")
@@ -555,8 +633,6 @@ def main() -> int:
         log_lines.append(f"[{stamp}] publish | sources/{item.source_id}.md | corpus-ingest | {item.title}")
         log_lines.append(f"[{stamp}] contradiction-check | qa-reports/{item.source_id}-contradiction.md | corpus-ingest | no confirmed contradiction")
     write_text(log_path, "\n".join(log_lines).rstrip() + "\n")
-    next_id = len(list(dirs["sources"].glob("LLM-*.md"))) + 1
-    write_text(ensure_within(dirs["_state"] / "id-counter.md", dirs["_state"], "state output must stay under _state/"), f"# ID Counter\nnext: {next_id}\n")
 
     print(f"ingested_sources={len(items)}")
     print(f"published_sources={len(list(dirs['sources'].glob('LLM-*.md')))}")

@@ -13,6 +13,13 @@ from datetime import datetime
 from pathlib import Path
 
 from wiki_common import ensure_within, json_dump, parse_frontmatter, read_text, write_text
+from wiki_source_registry import (
+    load_registry,
+    save_registry,
+    find_by_raw_path,
+    find_by_source_id,
+    raw_hash as compute_raw_hash,
+)
 
 
 ARXIV_RE = re.compile(r"(?<!\d)(\d{4}\.\d{4,5})(?:v\d+)?(?!\d)")
@@ -78,6 +85,7 @@ def registry_from_raw(vault: Path) -> list[dict[str, object]]:
                 "arxiv": arxiv,
                 "doi": doi,
                 "sha256": sha256(path),
+                "raw_hash": compute_raw_hash(path) if path.is_file() else "",
                 "status": "candidate",
             }
         )
@@ -100,7 +108,8 @@ def registry_from_sources(vault: Path) -> list[dict[str, object]]:
                 "arxiv": arxiv,
                 "doi": doi,
                 "sha256": "",
-                "status": "ingested",
+                "raw_hash": "",
+                "status": "published",
             }
         )
     return rows
@@ -191,18 +200,63 @@ def main() -> int:
     args = parser.parse_args()
 
     vault = args.vault.resolve()
-    rows = registry_from_raw(vault) + registry_from_sources(vault)
-    if args.arxiv_query:
-        rows.extend(fetch_arxiv(args.arxiv_query, args.max_results))
-    duplicates = duplicate_groups(rows)
     registry = ensure_within(args.registry or vault / "_state" / "source-registry.jsonl", vault, "discovery outputs must stay inside the vault")
     report_path = ensure_within(args.report or vault / "_state" / "source-discovery-report.md", vault, "discovery outputs must stay inside the vault")
-    write_jsonl(registry, rows)
-    write_text(report_path, report(rows, duplicates))
+
+    # Load existing registry to preserve source_uuid/source_id
+    existing_rows = load_registry(registry)
+    existing_by_path = {}
+    for row in existing_rows:
+        p = row.get("raw_path") or row.get("path", "")
+        if p:
+            existing_by_path[p] = row
+
+    fresh_rows = registry_from_raw(vault) + registry_from_sources(vault)
+    if args.arxiv_query:
+        fresh_rows.extend(fetch_arxiv(args.arxiv_query, args.max_results))
+
+    # Merge: preserve existing source_uuid/source_id, add new rows
+    existing_by_source_id = {}
+    for row in existing_rows:
+        sid = row.get("source_id", "")
+        if sid:
+            existing_by_source_id[sid] = row
+
+    merged = list(existing_rows)
+    merged_paths = {row.get("raw_path") or row.get("path", "") for row in merged}
+    merged_source_ids = {row.get("source_id", "") for row in merged}
+    for fresh in fresh_rows:
+        fp = fresh.get("path", "")
+        fresh_sid = fresh.get("source_id", "")
+        # Match by path first
+        if fp in existing_by_path:
+            existing = existing_by_path[fp]
+            for key in ("title", "title_key", "arxiv", "doi", "sha256", "raw_hash"):
+                if key in fresh:
+                    existing[key] = fresh[key]
+        # Match by source_id for source-kind rows
+        elif fresh_sid and fresh_sid in existing_by_source_id:
+            existing = existing_by_source_id[fresh_sid]
+            for key in ("title", "title_key", "arxiv", "doi", "sha256", "raw_hash", "status"):
+                if key in fresh:
+                    existing[key] = fresh[key]
+        elif fp not in merged_paths and fresh_sid not in merged_source_ids:
+            import uuid as _uuid
+            fresh.setdefault("source_uuid", _uuid.uuid4().hex)
+            if "raw_path" not in fresh:
+                fresh["raw_path"] = fp
+            merged.append(fresh)
+            merged_paths.add(fp)
+            if fresh_sid:
+                merged_source_ids.add(fresh_sid)
+
+    duplicates = duplicate_groups(merged)
+    save_registry(registry, merged)
+    write_text(report_path, report(merged, duplicates))
     if args.format == "json":
-        print(json_dump({"candidates": len(rows), "duplicates": duplicates, "registry": str(registry)}))
+        print(json_dump({"candidates": len(merged), "duplicates": duplicates, "registry": str(registry)}))
     else:
-        print(f"candidates: {len(rows)}")
+        print(f"candidates: {len(merged)}")
         print(f"duplicates: {len(duplicates)}")
         print(f"registry: {registry}")
         print(f"report: {report_path}")

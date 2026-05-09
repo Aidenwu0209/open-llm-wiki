@@ -24,6 +24,7 @@ from wiki_common import (
     rel,
     source_id_from_path,
 )
+from wiki_source_registry import load_registry, validate_registry as validate_registry_rows
 
 
 REQUIRED_DIRS = ["raw", "sources", "concepts", "drafts", "qa-reports", "claims", "templates", "_state", "log-archive"]
@@ -226,6 +227,27 @@ def check_state_jsonl(vault: Path, findings: list[Finding]) -> None:
                 findings.append(Finding("P1", f"{relpath}:{number}", "state row is not valid JSON"))
 
 
+def check_source_registry(vault: Path, findings: list[Finding]) -> None:
+    registry_path = vault / "_state" / "source-registry.jsonl"
+    if not registry_path.exists():
+        return
+    rows = load_registry(registry_path)
+    for location, message in validate_registry_rows(rows):
+        findings.append(Finding("P1", f"_state/source-registry.jsonl ({location})", message))
+
+    # Check artifact/source_page link existence
+    source_ids_on_disk = {p.stem for p in (vault / "sources").glob("LLM-*.md")}
+    for i, row in enumerate(rows):
+        source_id = row.get("source_id", "")
+        status = row.get("status", "")
+        if status in ("published", "qa_passed") and source_id not in source_ids_on_disk:
+            findings.append(Finding(
+                "P1",
+                f"_state/source-registry.jsonl (row {i + 1})",
+                f"published/qa_passed source_id {source_id} has no matching source page in sources/",
+            ))
+
+
 def load_optional_json(path: Path, vault: Path, findings: list[Finding], expected_type: type) -> object | None:
     try:
         data = json.loads(read_text(path))
@@ -363,6 +385,7 @@ def lint(vault: Path, obsidian: bool = False, graph: bool = False) -> list[Findi
     check_claim_hygiene(vault, findings)
     check_claim_graph(vault, findings)
     check_state_jsonl(vault, findings)
+    check_source_registry(vault, findings)
     if obsidian:
         check_obsidian(vault, findings)
     if graph:
