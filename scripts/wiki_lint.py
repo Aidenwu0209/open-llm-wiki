@@ -37,7 +37,26 @@ REQUIRED_FILES = [
     "_state/science-review-queue.jsonl",
 ]
 SOURCE_FIELDS = {"id", "title", "status", "created", "updated", "source", "tags"}
+SOURCE_EXTENDED_FIELDS = {"type", "source_id", "source_uuid", "title", "status",
+                          "source_sha256", "artifact_sha256", "parser", "parser_version",
+                          "published_at", "updated_at", "qa_verdict",
+                          "claims_total", "claims_supported", "claims_needing_review", "concepts"}
+SOURCE_REQUIRED_SECTIONS = [
+    "## One-Sentence Conclusion",
+    "## Why It Matters",
+    "## Key Metrics",
+    "## Evidence & Source Anchors",
+    "## QA/Review Status",
+]
 CONCEPT_FIELDS = {"id", "title", "created", "updated"}
+CONCEPT_EXTENDED_FIELDS = {"type", "concept_id", "status", "updated_at",
+                           "supporting_claims", "contradicted_claims", "stale_claims", "related_concepts"}
+CONCEPT_REQUIRED_SECTIONS = [
+    "## Definition",
+    "## Why It Matters",
+    "## Supporting Evidence",
+    "## Representative Sources",
+]
 STALE_WORDS = ("latest", "current", "state of the art", "sota", "now")
 OBSIDIAN_SORTSPEC_ENTRIES = [
     "_dashboard.md",
@@ -83,14 +102,46 @@ def check_pages(vault: Path, findings: list[Finding]) -> None:
         for path in sorted((vault / source_dir).glob("*.md")):
             relpath = rel(path, vault)
             fields, body = parse_frontmatter(path)
+
+            # Core fields required for all source pages
             missing = SOURCE_FIELDS - set(fields)
             if missing:
                 findings.append(Finding("P0", relpath, f"missing source frontmatter fields: {sorted(missing)}"))
                 continue
+
+            # Extended fields check (P2 for gradual migration)
+            if fields.get("type") == "source":
+                extended_missing = SOURCE_EXTENDED_FIELDS - set(fields)
+                if extended_missing:
+                    findings.append(Finding("P2", relpath, f"missing extended source frontmatter fields: {sorted(extended_missing)}"))
+
+                # Validate source_id matches filename
+                source_id_field = fields.get("source_id", "")
+                source_id = source_id_from_path(path)
+                if source_id and source_id_field and source_id_field != source_id:
+                    findings.append(Finding("P0", relpath, f"source_id {source_id_field!r} does not match filename {source_id}"))
+
+                # Validate qa_verdict consistency
+                qa_verdict = fields.get("qa_verdict", "").strip('"')
+                if expected_status == "stable" and qa_verdict and qa_verdict != "PASS":
+                    findings.append(Finding("P1", relpath, f"source is stable but qa_verdict is {qa_verdict!r}"))
+
+                # Check required sections
+                for section in SOURCE_REQUIRED_SECTIONS:
+                    if section not in body:
+                        findings.append(Finding("P2", relpath, f"source page missing required section: {section}"))
+            else:
+                # Legacy source pages: check id matches filename
+                source_id = source_id_from_path(path)
+                if not source_id:
+                    findings.append(Finding("P1", relpath, "source filename must be LLM-NNNN.md"))
+                elif fields.get("id") != source_id:
+                    findings.append(Finding("P0", relpath, f"id {fields.get('id')!r} does not match filename {source_id}"))
+
             source_id = source_id_from_path(path)
             if not source_id:
                 findings.append(Finding("P1", relpath, "source filename must be LLM-NNNN.md"))
-            elif fields.get("id") != source_id:
+            elif fields.get("id") and fields.get("id") != source_id:
                 findings.append(Finding("P0", relpath, f"id {fields.get('id')!r} does not match filename {source_id}"))
             if fields.get("status") != expected_status:
                 findings.append(Finding("P0", relpath, f"status must be {expected_status!r} in {source_dir}/"))
@@ -106,6 +157,26 @@ def check_pages(vault: Path, findings: list[Finding]) -> None:
         missing = CONCEPT_FIELDS - set(fields)
         if missing:
             findings.append(Finding("P1", relpath, f"missing concept frontmatter fields: {sorted(missing)}"))
+
+        # Extended fields check for new-style concept pages
+        if fields.get("type") == "concept":
+            extended_missing = CONCEPT_EXTENDED_FIELDS - set(fields)
+            if extended_missing:
+                findings.append(Finding("P2", relpath, f"missing extended concept frontmatter fields: {sorted(extended_missing)}"))
+
+            # Check required sections
+            for section in CONCEPT_REQUIRED_SECTIONS:
+                if section not in body:
+                    findings.append(Finding("P2", relpath, f"concept page missing required section: {section}"))
+
+            # Check stale claims consistency
+            supporting = int(fields.get("supporting_claims", "0") or "0")
+            stale = int(fields.get("stale_claims", "0") or "0")
+            contradicted = int(fields.get("contradicted_claims", "0") or "0")
+            total = supporting + stale + contradicted
+            if total > 0 and stale > supporting:
+                findings.append(Finding("P2", relpath, "concept has more stale claims than supporting claims, may need refresh"))
+
         if "[[" not in body:
             findings.append(Finding("P2", relpath, "concept page has no wiki citations"))
 

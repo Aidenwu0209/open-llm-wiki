@@ -1,55 +1,76 @@
 ---
-id: LLM-XXXX
+type: source
+source_id: LLM-XXXX
+source_uuid: ""
 title: "Paper Title"
 status: draft
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
-source: "Authors, Paper Title, arXiv:XXXX.XXXXX, Year"
-tags: [tag1, tag2, tag3]
+source_sha256: ""
+artifact_sha256: ""
+parser: ""
+parser_version: ""
+published_at: YYYY-MM-DD
+updated_at: YYYY-MM-DD
+qa_verdict: ""
+claims_total: 0
+claims_supported: 0
+claims_needing_review: 0
+concepts: [concept-one, concept-two]
 ---
 
 # Paper Title
 
-## One-Sentence Contribution
+## One-Sentence Conclusion
 
-State the main contribution and include the most important number when one
-exists.
+State the main conclusion in one sentence, including the most important number
+when one exists.
 
-## Core Idea
+## Why It Matters
 
-Explain the problem, method, and why the method matters.
+Explain why this source is important for the wiki. What question does it answer
+or what gap does it fill?
 
-## Key Data
+## Key Contributions
 
-Write this section first. Prefer tables over figures. Name baselines.
+- Contribution 1
+- Contribution 2
 
-| Metric | Value | Baseline | Evidence |
+## Key Claims
+
+| Claim | Type | Status | Evidence |
 | --- | --- | --- | --- |
-| ... | ... | ... | Table/Figure/Section ... |
+| ... | contribution/metric | supported/review/contested | anchor |
 
-Evidence:
+## Key Metrics
 
-- paper:
-- page:
-- section:
-- table:
-- raw extraction:
+| Metric | Value | Baseline | Protocol | Evidence |
+| --- | --- | --- | --- | --- |
+| ... | ... | ... | ... | Table/Figure/Section |
 
-## Timeline Position
+## Methods & Data
 
-Describe where this source fits relative to prior and later work.
+Describe the approach, training data, model architecture, and evaluation setup.
 
-```text
-Prior work
-`-- This paper
-    `-- Later related work
-```
+## Limitations & Controversies
 
-## Interpretation
+- Known limitations acknowledged by the authors.
+- Community concerns or reproducibility issues.
+- Scope constraints.
 
-What is genuinely new? What is limited, fragile, or mostly packaging?
+## Related Concepts
 
-## Links
+- [[concept-name]] - brief relevance note
 
-- Related concepts: [[concept-name]]
-- Related sources: [[LLM-XXXX]]
+## Evidence & Source Anchors
+
+- paper: path to raw evidence
+- parsed markdown: path to combined.md
+- page: N
+- section: X.Y
+- table: N
+
+## QA/Review Status
+
+- qa_verdict: PASS or FAIL
+- qa_overall: X.X/10
+- qa_report: [[qa-reports/LLM-XXXX]]
+- contradiction_report: [[qa-reports/LLM-XXXX-contradiction]]

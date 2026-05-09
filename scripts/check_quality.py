@@ -584,7 +584,7 @@ def check_claim_extraction() -> None:
             if row.get("claim_type") != "metric":
                 continue
             evidence = str(row.get("evidence", ""))
-            if not evidence.startswith("sources/LLM-0001.md#Key Data"):
+            if not evidence.startswith(("sources/LLM-0001.md#Key Data", "sources/LLM-0001.md#Key Metrics")):
                 fail("metric claim evidence must point back to a source page anchor")
 
 

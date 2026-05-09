@@ -96,7 +96,11 @@ def concept_links(body: str, concept_names: set[str]) -> list[str]:
 
 
 def contribution_claim(source_id: str, title: str, body: str, concepts: list[str], relpath: str) -> dict[str, object] | None:
-    contribution = normalize_space(section(body, "One-Sentence Contribution"))
+    contribution = normalize_space(section(body, "One-Sentence Conclusion"))
+    anchor_heading = "One-Sentence Conclusion"
+    if not contribution:
+        contribution = normalize_space(section(body, "One-Sentence Contribution"))
+        anchor_heading = "One-Sentence Contribution"
     if not contribution:
         return None
     claim_id = f"claim-{short_hash(source_id + contribution)}"
@@ -112,7 +116,7 @@ def contribution_claim(source_id: str, title: str, body: str, concepts: list[str
         "value": None,
         "unit": "",
         "baseline": "",
-        "evidence": relpath + "#One-Sentence Contribution",
+        "evidence": relpath + "#" + anchor_heading,
         "concepts": concepts,
         "confidence": 0.74,
         "needs_review": False,
@@ -121,14 +125,18 @@ def contribution_claim(source_id: str, title: str, body: str, concepts: list[str
 
 def metric_claims(source_id: str, title: str, body: str, concepts: list[str], relpath: str) -> list[dict[str, object]]:
     claims: list[dict[str, object]] = []
-    key_data = section(body, "Key Data")
+    key_data = section(body, "Key Metrics")
+    anchor_heading = "Key Metrics"
+    if not key_data:
+        key_data = section(body, "Key Data")
+        anchor_heading = "Key Data"
     for row in parse_table_rows(key_data):
         if len(row) < 4:
             continue
         metric, raw_value, baseline, evidence = row[:4]
         numeric, unit = parse_value(raw_value)
         claim_id = f"claim-{short_hash(source_id + metric + raw_value + evidence)}"
-        anchor = source_section_anchor(relpath, "Key Data", evidence)
+        anchor = source_section_anchor(relpath, anchor_heading, evidence)
         claims.append(
             {
                 "claim_id": claim_id,

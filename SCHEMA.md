@@ -47,6 +47,8 @@ my-llm-wiki/
 
 ## Source Frontmatter
 
+Legacy (still accepted):
+
 ```yaml
 ---
 id: LLM-NNNN
@@ -59,18 +61,55 @@ tags: [tag1, tag2]
 ---
 ```
 
+Obsidian-readable (new, preferred):
+
+```yaml
+---
+type: source
+source_id: LLM-NNNN
+source_uuid: "short-uuid"
+title: "Paper Title"
+status: draft|stable
+source_sha256: ""
+artifact_sha256: ""
+parser: "pdf-to-markdown"
+parser_version: "1.0"
+published_at: YYYY-MM-DD
+updated_at: YYYY-MM-DD
+qa_verdict: "PASS"
+claims_total: 0
+claims_supported: 0
+claims_needing_review: 0
+concepts: [concept-one, concept-two]
+---
+```
+
 Rules:
 
-- `id` must match the filename.
+- `source_id` (or legacy `id`) must match the filename.
 - `status: stable` is allowed only after independent QA passes.
-- `created` is the source publication date when known.
-- `updated` is the last wiki edit date.
+- `published_at` is the source publication date when known.
+- `updated_at` is the last wiki edit date.
+- `qa_verdict` must be `PASS` for stable sources.
+- `claims_total`, `claims_supported`, `claims_needing_review` are populated
+  from `claims/claims.jsonl`.
+- `concepts` lists related concept page IDs for Dataview queries.
 - every source page needs hard numbers or an explicit note that the source has
   no quantitative claims.
 - important claims should include evidence anchors: page, section, table, line,
   or extraction offset.
 
+Required source page sections:
+
+- `## One-Sentence Conclusion`
+- `## Why It Matters`
+- `## Key Metrics`
+- `## Evidence & Source Anchors`
+- `## QA/Review Status`
+
 ## Concept Frontmatter
+
+Legacy (still accepted):
 
 ```yaml
 ---
@@ -81,8 +120,33 @@ updated: YYYY-MM-DD
 ---
 ```
 
+Obsidian-readable (new, preferred):
+
+```yaml
+---
+type: concept
+concept_id: concept-name
+status: active
+updated_at: YYYY-MM-DD
+supporting_claims: 0
+contradicted_claims: 0
+stale_claims: 0
+related_concepts: [other-concept]
+---
+```
+
 Concept pages are living synthesis. They do not use `stable` status, but every
 important claim should cite a source page.
+
+`supporting_claims`, `contradicted_claims`, and `stale_claims` are computed
+from `claims/claims.jsonl` by `wiki_concept_revision.py`.
+
+Required concept page sections:
+
+- `## Definition`
+- `## Why It Matters`
+- `## Supporting Evidence`
+- `## Representative Sources`
 
 ## ID Allocation
 

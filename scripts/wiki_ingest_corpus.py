@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -38,6 +40,7 @@ CONCEPTS = {
 @dataclass
 class Item:
     source_id: str
+    source_uuid: str
     title: str
     raw_rel: str
     pdf_rel: str
@@ -48,6 +51,10 @@ class Item:
     abstract: str
     evidence: list[tuple[str, str, str]]
     opening_line: int
+    source_sha256: str = ""
+    artifact_sha256: str = ""
+    parser: str = "pdf-to-markdown"
+    parser_version: str = "1.0"
 
 
 def clean_line(line: str) -> str:
@@ -252,6 +259,16 @@ def evidence_rows(lines: list[str], raw_rel: str) -> list[tuple[str, str, str]]:
     return rows
 
 
+def _sha256(path: Path) -> str:
+    if not path.exists():
+        return ""
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def build_item(vault: Path, source_id: str, combined: Path, today: str, concept_defs: dict[str, tuple[str, str]]) -> Item:
     raw_rel = combined.relative_to(vault).as_posix()
     stem = combined.parent.name.removesuffix("_markdown")
@@ -265,6 +282,7 @@ def build_item(vault: Path, source_id: str, combined: Path, today: str, concept_
     tags = derive_tags(title, combined.parent.name, abstract)
     return Item(
         source_id=source_id,
+        source_uuid=str(uuid.uuid4())[:8],
         title=title,
         raw_rel=raw_rel,
         pdf_rel=pdf_rel,
@@ -275,69 +293,98 @@ def build_item(vault: Path, source_id: str, combined: Path, today: str, concept_
         abstract=abstract,
         evidence=evidence_rows(lines, raw_rel),
         opening_line=opening_line,
+        source_sha256=_sha256(pdf),
+        artifact_sha256=_sha256(combined),
     )
 
 
-def source_text(item: Item, status: str, today: str) -> str:
+def source_text(item: Item, status: str, today: str, qa_verdict: str = "",
+                claims_total: int = 0, claims_supported: int = 0,
+                claims_needing_review: int = 0) -> str:
     sentences = split_sentences(item.abstract)
     contribution = sentences[0] if sentences else f"{item.title} is ingested as evidence for the LLM wiki."
     core = " ".join(sentences[:4]) or item.abstract[:900]
-    source = item.title + (f", arXiv:{item.arxiv}" if item.arxiv else "")
     safe_title = item.title.replace('"', '\\"')
-    safe_source = source.replace('"', '\\"')
+    safe_source = (item.title + (f", arXiv:{item.arxiv}" if item.arxiv else "")).replace('"', '\\"')
     tags = ", ".join(item.tags)
-    concepts = ", ".join(f"[[{concept}]]" for concept in item.concepts)
+    concepts_yaml = ", ".join(item.concepts)
+    concepts_links = ", ".join(f"[[{c}]]" for c in item.concepts)
     rows = "\n".join(f"| Reported claim | {value} | as stated in source | {anchor} |" for _claim, value, anchor in item.evidence)
     evidence = "\n".join(f"- {anchor}: {claim}" for claim, _value, anchor in item.evidence)
+    verdict_display = qa_verdict or ("PASS" if status == "stable" else "")
     return f"""---
+type: source
+source_id: {item.source_id}
 id: {item.source_id}
+source_uuid: "{item.source_uuid}"
 title: "{safe_title}"
 status: {status}
+source_sha256: "{item.source_sha256}"
+artifact_sha256: "{item.artifact_sha256}"
+parser: "{item.parser}"
+parser_version: "{item.parser_version}"
+published_at: {item.created}
+updated_at: {today}
 created: {item.created}
 updated: {today}
 source: "{safe_source}"
 tags: [{tags}]
+qa_verdict: "{verdict_display}"
+claims_total: {claims_total}
+claims_supported: {claims_supported}
+claims_needing_review: {claims_needing_review}
+concepts: [{concepts_yaml}]
 ---
 
 # {item.title}
 
-## One-Sentence Contribution
+## One-Sentence Conclusion
 
 {contribution}
 
-## Core Idea
+## Why It Matters
 
 {core}
 
-## Key Data
+## Key Contributions
+
+- {contribution}
+
+## Key Claims
+
+> Claims are extracted after running `wiki_claims.py`. Claim counts are shown in frontmatter.
+
+## Key Metrics
 
 | Metric | Value | Baseline | Evidence |
 | --- | --- | --- | --- |
 {rows}
 
-Evidence:
+## Methods & Data
+
+This page treats the parsed paper as primary evidence, not final synthesis.
+Broader causal interpretations belong in concept pages and must be marked as inference.
+
+## Limitations & Controversies
+
+- Limitations to be reviewed after contradiction scanning.
+
+## Related Concepts
+
+{concepts_links}
+
+## Evidence & Source Anchors
 
 - paper: {item.pdf_rel}
 - parsed markdown: {item.raw_rel}
 - abstract/opening anchor: {item.raw_rel}#L{item.opening_line}
 {evidence}
 
-## Timeline Position
+## QA/Review Status
 
-```text
-Prior related LLM work
-`-- {item.created[:7]} {item.title}
-    `-- Later concept synthesis in this wiki
-```
-
-## Interpretation
-
-This page treats the parsed paper as primary evidence, not final synthesis. The durable wiki claim is that this source contributes to {concepts}. Broader causal interpretations belong in concept pages and must be marked as inference.
-
-## Links
-
-- Related concepts: {concepts}
-- Related sources: to be added by future contradiction and concept revision passes.
+- qa_verdict: {verdict_display or "pending"}
+- qa_report: [[qa-reports/{item.source_id}]]
+- contradiction_report: [[qa-reports/{item.source_id}-contradiction]]
 """
 
 
@@ -386,37 +433,70 @@ def contradiction_text(item: Item, today: str) -> str:
 """
 
 
-def concept_text(concept_id: str, items: list[Item], today: str, concept_defs: dict[str, tuple[str, str]]) -> str:
+def concept_text(concept_id: str, items: list[Item], today: str,
+                concept_defs: dict[str, tuple[str, str]],
+                supporting_claims: int = 0, contradicted_claims: int = 0,
+                stale_claims: int = 0, related_concepts: list[str] | None = None) -> str:
     title, question = concept_defs[concept_id]
     bullets = "\n".join(f"- [[{item.source_id}]] contributes evidence from *{item.title}*." for item in items)
     sources = "\n".join(f"- [[{item.source_id}|{item.title}]] - source page for this concept" for item in items)
+    related = related_concepts or []
+    related_yaml = ", ".join(related)
+    related_links = ", ".join(f"[[{r}]]" for r in related) if related else "none yet"
+    safe_title = title.replace('"', '\\"')
     return f"""---
+type: concept
+concept_id: {concept_id}
 id: {concept_id}
-title: "{title}"
+title: "{safe_title}"
+status: active
 created: {today}
 updated: {today}
+updated_at: {today}
+supporting_claims: {supporting_claims}
+contradicted_claims: {contradicted_claims}
+stale_claims: {stale_claims}
+related_concepts: [{related_yaml}]
 ---
 
 # {title}
 
-> {question}
+## Definition
 
-## Why It Matters
+{question}
+
+## Core Intuition
 
 This concept helps connect individual source pages into reusable wiki knowledge.
 
-## Current Understanding
+## Why It Matters
+
+Understanding this concept is essential for navigating the evidence landscape in this wiki.
+
+## Key Mechanisms
 
 {bullets}
+
+## Supporting Evidence
+
+> Evidence matrix is populated after running `wiki_claims.py` and `wiki_concept_revision.py`.
+
+## Counter-examples & Controversies
+
+- None detected yet. Rerun contradiction scanning after adding more sources.
+
+## Related Methods & Concepts
+
+{related_links}
+
+## Representative Sources
+
+{sources}
 
 ## Open Questions
 
 - Which claims remain comparable after normalizing model size, data, compute, and evaluation protocol?
 - Which claims are explicit facts, and which are cross-source inference?
-
-## Sources
-
-{sources}
 """
 
 
@@ -513,9 +593,10 @@ def main() -> int:
         draft_path = ensure_within(dirs["drafts"] / f"{source_id}.md", dirs["drafts"], "draft output must stay under drafts/")
         write_text(draft_path, draft)
         passed, qa = qa_text(item, draft, args.today)
+        qa_verdict = "PASS" if passed else "FAIL"
         write_text(ensure_within(dirs["qa-reports"] / f"{source_id}.md", dirs["qa-reports"], "QA output must stay under qa-reports/"), qa)
         if passed:
-            write_text(source_path, source_text(item, "stable", args.today))
+            write_text(source_path, source_text(item, "stable", args.today, qa_verdict=qa_verdict))
             draft_path.unlink(missing_ok=True)
             write_text(
                 ensure_within(dirs["qa-reports"] / f"{source_id}-contradiction.md", dirs["qa-reports"], "QA output must stay under qa-reports/"),
@@ -524,12 +605,59 @@ def main() -> int:
             for concept in item.concepts:
                 concept_items[concept].append(item)
 
+    # Load claims for enriching source and concept pages
+    claims_path = vault / "claims" / "claims.jsonl"
+    all_claims: list[dict[str, object]] = []
+    if claims_path.exists():
+        for line in read_text(claims_path).splitlines():
+            if line.strip():
+                try:
+                    all_claims.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+
+    # Update source pages with claim counts
+    for item in items:
+        source_claims = [c for c in all_claims if str(c.get("source_id", "")) == item.source_id]
+        claims_total = len(source_claims)
+        claims_supported = sum(1 for c in source_claims if not bool(c.get("needs_review")))
+        claims_needing_review = sum(1 for c in source_claims if bool(c.get("needs_review")))
+        if claims_total > 0:
+            source_path = dirs["sources"] / f"{item.source_id}.md"
+            if source_path.exists():
+                write_text(source_path, source_text(
+                    item, "stable", args.today,
+                    qa_verdict="PASS",
+                    claims_total=claims_total,
+                    claims_supported=claims_supported,
+                    claims_needing_review=claims_needing_review,
+                ))
+
+    # Compute concept claim counts
+    concept_claim_counts: dict[str, dict[str, int]] = {}
+    for claim in all_claims:
+        for concept in claim.get("concepts", []):
+            concept_id = str(concept)
+            if concept_id not in concept_claim_counts:
+                concept_claim_counts[concept_id] = {"supporting": 0, "contradicted": 0, "stale": 0}
+            if not bool(claim.get("needs_review")):
+                concept_claim_counts[concept_id]["supporting"] += 1
+    # Find related concepts from concept_items
+    all_concept_ids = set(concept_items.keys())
     for concept_id, concept_sources in sorted(concept_items.items()):
         concept_path = ensure_within(dirs["concepts"] / f"{concept_id}.md", dirs["concepts"], "concept output must stay under concepts/")
+        counts = concept_claim_counts.get(concept_id, {"supporting": 0, "contradicted": 0, "stale": 0})
+        related = sorted(all_concept_ids - {concept_id})
         if args.resume and concept_path.exists():
             merge_concept_page(concept_path, concept_sources)
         else:
-            write_text(concept_path, concept_text(concept_id, concept_sources, args.today, concept_defs))
+            write_text(concept_path, concept_text(
+                concept_id, concept_sources, args.today, concept_defs,
+                supporting_claims=counts["supporting"],
+                contradicted_claims=counts["contradicted"],
+                stale_claims=counts["stale"],
+                related_concepts=related,
+            ))
 
     source_rows = "\n".join(f"| [[{item.source_id}]] | {item.title.replace('|', '/')} | {', '.join(item.tags)} |" for item in items)
     concept_rows = "\n".join(

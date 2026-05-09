@@ -1,39 +1,55 @@
 ---
-id: concept-name
-title: "Concept Display Name"
-created: YYYY-MM-DD
-updated: YYYY-MM-DD
+type: concept
+concept_id: concept-name
+status: active
+updated_at: YYYY-MM-DD
+supporting_claims: 0
+contradicted_claims: 0
+stale_claims: 0
+related_concepts: [other-concept]
 ---
 
 # Concept Display Name
 
-> One-sentence explanation of what this concept means in the current wiki.
+## Definition
+
+One-paragraph definition of what this concept means in the wiki context.
+
+## Core Intuition
+
+Explain the core idea in plain language. How does it work at a high level?
 
 ## Why It Matters
 
-Explain the research question this concept helps answer.
+Explain the research question this concept helps answer and why it matters
+for LLM research.
 
-## Current Understanding
+## Key Mechanisms
 
-Write synthesis across sources. Cite every important claim.
+- Mechanism 1 with citation. [[LLM-XXXX]]
+- Mechanism 2 with evidence anchor. [[LLM-YYYY]]
 
-- Insight with citation. [[LLM-XXXX]]
-- Inference clearly labeled as inference. [[LLM-YYYY]]
-- Claim with evidence anchor inherited from the source page. [[LLM-ZZZZ]]
+## Supporting Evidence
 
-## Timeline
+| Source | Claim | Type | Status | Evidence |
+| --- | --- | --- | --- | --- |
+| [[LLM-XXXX]] | ... | metric | supported | anchor |
 
-Use this section only when the concept has a meaningful evolution.
+## Counter-examples & Controversies
 
-| Date | Change | Source | Evidence |
-| --- | --- | --- | --- |
-| YYYY-MM | ... | [[LLM-XXXX]] | ... |
+- Known limitations or edge cases.
+- Conflicting evidence from other sources.
+- Claims under review.
+
+## Related Methods & Concepts
+
+- [[other-concept]] - brief relationship note
+
+## Representative Sources
+
+- [[LLM-XXXX|Short Title]] - one-line summary of what this source contributes
 
 ## Open Questions
 
 - Question that needs more evidence.
 - Potential contradiction to monitor.
-
-## Sources
-
-- [[LLM-XXXX|Short Title]] - one-line description
