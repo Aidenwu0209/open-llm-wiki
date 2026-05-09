@@ -127,6 +127,8 @@ def check_docs() -> None:
         "scripts/wiki_obsidian_setup.py",
         "scripts/wiki_semantic_qa.py",
         "scripts/wiki_search.py",
+        "scripts/wiki_source_registry.py",
+        "scripts/wiki_ingest_plan.py",
         "scripts/wiki_status.py",
         "scripts/wiki_writeback.py",
         "scripts/wiki_eval.py",

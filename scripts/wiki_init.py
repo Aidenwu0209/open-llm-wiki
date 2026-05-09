@@ -54,6 +54,8 @@ RUNTIME_SCRIPTS = [
     "wiki_science_review.py",
     "wiki_semantic_qa.py",
     "wiki_search.py",
+    "wiki_source_registry.py",
+    "wiki_ingest_plan.py",
     "wiki_status.py",
     "wiki_writeback.py",
 ]
