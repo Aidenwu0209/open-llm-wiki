@@ -300,7 +300,9 @@ def build_item(vault: Path, source_id: str, combined: Path, today: str, concept_
 
 def source_text(item: Item, status: str, today: str, qa_verdict: str = "",
                 claims_total: int = 0, claims_supported: int = 0,
-                claims_needing_review: int = 0) -> str:
+                claims_needing_review: int = 0, *,
+                qa_report_exists: bool = True,
+                contradiction_report_exists: bool = True) -> str:
     sentences = split_sentences(item.abstract)
     contribution = sentences[0] if sentences else f"{item.title} is ingested as evidence for the LLM wiki."
     core = " ".join(sentences[:4]) or item.abstract[:900]
@@ -312,6 +314,8 @@ def source_text(item: Item, status: str, today: str, qa_verdict: str = "",
     rows = "\n".join(f"| Reported claim | {value} | as stated in source | {anchor} |" for _claim, value, anchor in item.evidence)
     evidence = "\n".join(f"- {anchor}: {claim}" for claim, _value, anchor in item.evidence)
     verdict_display = qa_verdict or ("PASS" if status == "stable" else "")
+    qa_report_ref = f"qa-reports/{item.source_id}.md" if qa_report_exists else "pending"
+    contradiction_ref = f"qa-reports/{item.source_id}-contradiction.md" if contradiction_report_exists else "pending"
     return f"""---
 type: source
 source_id: {item.source_id}
@@ -383,8 +387,8 @@ Broader causal interpretations belong in concept pages and must be marked as inf
 ## QA/Review Status
 
 - qa_verdict: {verdict_display or "pending"}
-- qa_report: [[qa-reports/{item.source_id}]]
-- contradiction_report: [[qa-reports/{item.source_id}-contradiction]]
+- qa_report: {qa_report_ref}
+- contradiction_report: {contradiction_ref}
 """
 
 
@@ -589,19 +593,19 @@ def main() -> int:
             continue
         item = build_item(vault, source_id, combined, args.today, concept_defs)
         items.append(item)
-        draft = source_text(item, "draft", args.today)
+        draft = source_text(item, "draft", args.today, qa_report_exists=False, contradiction_report_exists=False)
         draft_path = ensure_within(dirs["drafts"] / f"{source_id}.md", dirs["drafts"], "draft output must stay under drafts/")
         write_text(draft_path, draft)
         passed, qa = qa_text(item, draft, args.today)
         qa_verdict = "PASS" if passed else "FAIL"
         write_text(ensure_within(dirs["qa-reports"] / f"{source_id}.md", dirs["qa-reports"], "QA output must stay under qa-reports/"), qa)
         if passed:
-            write_text(source_path, source_text(item, "stable", args.today, qa_verdict=qa_verdict))
-            draft_path.unlink(missing_ok=True)
             write_text(
                 ensure_within(dirs["qa-reports"] / f"{source_id}-contradiction.md", dirs["qa-reports"], "QA output must stay under qa-reports/"),
                 contradiction_text(item, args.today),
             )
+            write_text(source_path, source_text(item, "stable", args.today, qa_verdict=qa_verdict, qa_report_exists=True, contradiction_report_exists=True))
+            draft_path.unlink(missing_ok=True)
             for concept in item.concepts:
                 concept_items[concept].append(item)
 
@@ -631,6 +635,8 @@ def main() -> int:
                     claims_total=claims_total,
                     claims_supported=claims_supported,
                     claims_needing_review=claims_needing_review,
+                    qa_report_exists=True,
+                    contradiction_report_exists=True,
                 ))
 
     # Compute concept claim counts

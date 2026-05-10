@@ -72,5 +72,5 @@ Describe the approach, training data, model architecture, and evaluation setup.
 
 - qa_verdict: PASS or FAIL
 - qa_overall: X.X/10
-- qa_report: [[qa-reports/LLM-XXXX]]
-- contradiction_report: [[qa-reports/LLM-XXXX-contradiction]]
+- qa_report: qa-reports/LLM-XXXX.md
+- contradiction_report: qa-reports/LLM-XXXX-contradiction.md
