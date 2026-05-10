@@ -156,21 +156,76 @@ When new evidence conflicts with an existing concept claim:
 
 ## Claim Graph
 
-Semantic self-growth uses `claims/claims.jsonl`. Each row is a JSON object with:
+Semantic self-growth uses `claims/claims.jsonl`. Each row is a JSON object
+representing a claim ledger entry with the following fields:
 
-- `claim_id`: stable generated identifier
-- `source_id`: `LLM-NNNN`
-- `claim_type`: `contribution` or `metric`
-- `subject`, `predicate`, `object`
-- `value` and `unit` when numeric
-- `baseline` when available
-- `evidence`: source page, parsed Markdown, page, table, or line anchor
-- `concepts`: related concept page ids
-- `confidence`
-- `needs_review`
+### Core Ledger Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `claim_id` | string | stable generated identifier (e.g. `claim-abc123`) |
+| `source_uuid` | string | SHA-256-based UUID derived from source_id |
+| `source_id` | string | wiki source ID (`LLM-NNNN`) |
+| `chunk_id` | string | optional chunk reference from parse artifacts |
+| `claim_text` | string | full human-readable claim text |
+| `normalized_claim` | string | lowercased, whitespace-normalized claim text |
+| `claim_type` | string | `contribution` or `metric` |
+| `entities` | list of strings | named entities extracted from claim text |
+| `concepts` | list of strings | related concept page ids |
+| `evidence_quote` | string | short precise quote from source (max 300 chars) |
+| `evidence_hash` | string | SHA-256[:16] of evidence_quote for tamper detection |
+| `anchor` | string | machine-resolvable evidence location |
+| `confidence` | float | confidence score |
+| `verdict` | string | QA verdict: unreviewed, supported, weak, contradicted, retracted, stale |
+| `contradiction_group` | string | group ID if claim is part of a contradiction cluster |
+| `created_at` | ISO 8601 | claim creation timestamp |
+| `updated_at` | ISO 8601 | last modification timestamp |
+
+### Normalization Fields (metric claims)
+
 - `metric_key`, `normalized_value`, `normalized_unit`, `unit_family`
-- `baseline_key`, `protocol_key`, and `normalization_warnings` after metric
-  normalization
+- `baseline_key`, `protocol_key`, and `normalization_warnings`
+
+### Legacy Fields (kept for backward compatibility)
+
+- `source_title`, `page`, `subject`, `predicate`, `object`
+- `value`, `unit`, `baseline`, `evidence`, `needs_review`
+
+### Verdict Lifecycle
+
+```text
+unreviewed -> supported | weak
+supported -> stale (when source becomes stale)
+weak -> supported | contradicted
+contradicted -> retracted (after human review)
+any -> stale (when source is removed or marked stale)
+```
+
+- `supported`: claim is backed by verifiable evidence_quote
+- `weak`: evidence_quote is missing, too long, or hash mismatches
+- `contradicted`: claim conflicts with another supported claim
+- `retracted`: human reviewer confirmed the contradiction
+- `stale`: source page no longer exists or has been marked stale
+
+### Concept Synthesis Rules
+
+- Only `supported` claims enter stable concept pages by default
+- `weak` and `unreviewed` claims can only enter the review queue section
+- `contradicted`, `retracted`, and `stale` claims must not appear in stable
+  synthesis
+- `wiki_concept_revision.py` enforces this by verdict filtering
+
+### Contradiction Groups
+
+`wiki_contradictions.py --assign-groups` builds contradiction groups based on
+normalized_claim, entities, and concepts overlap. Group IDs are formatted as
+`CG-NNNN` and assigned to the `contradiction_group` field.
+
+### Stale Hook
+
+When a source page is removed or marked stale, `mark_stale_claims()` sets all
+related claims to `verdict: stale`. This is a local claim-level hook; a full
+impact graph is planned separately.
 
 The claim graph is generated from stable source pages. It can be regenerated,
 but concept-page conclusions and QA reports remain reviewable Markdown records.

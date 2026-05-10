@@ -536,6 +536,89 @@ def main() -> int:
         if not {"raw", "source"}.issubset(kinds):
             raise SystemExit("grow eval did not refresh source registry after corpus ingest")
 
+    # --- Claim Ledger Tests (Issue #69) ---
+    with tempfile.TemporaryDirectory() as td:
+        q_vault = Path(td) / "claim-ledger-vault"
+        shutil.copytree(ROOT / "examples" / "minimal-vault", q_vault)
+
+        # Re-extract claims with new ledger schema
+        run([sys.executable, "scripts/wiki_claims.py", str(q_vault)])
+
+        claims_path = q_vault / "claims" / "claims.jsonl"
+        claims = load_jsonl(claims_path)
+        if not claims:
+            raise SystemExit("claim ledger: no claims extracted")
+
+        # Verify ledger fields present
+        required_fields = {"claim_id", "source_uuid", "source_id", "chunk_id",
+                          "claim_text", "normalized_claim", "evidence_quote",
+                          "evidence_hash", "anchor", "verdict", "created_at", "updated_at"}
+        for claim in claims:
+            missing = required_fields - set(claim)
+            if missing:
+                raise SystemExit(f"claim ledger: claim {claim.get('claim_id')} missing fields: {missing}")
+
+        # Test: evidence_quote must be short
+        for claim in claims:
+            eq = str(claim.get("evidence_quote", ""))
+            if len(eq) > 300:
+                raise SystemExit(f"claim ledger: evidence_quote too long ({len(eq)} chars)")
+
+        # Test: evidence_hash matches
+        import hashlib
+        for claim in claims:
+            eq = str(claim.get("evidence_quote", ""))
+            eh = str(claim.get("evidence_hash", ""))
+            if eq and eh:
+                expected = hashlib.sha256(eq.encode("utf-8")).hexdigest()[:16]
+                if eh != expected:
+                    raise SystemExit(f"claim ledger: evidence_hash mismatch for {claim.get('claim_id')}")
+
+        # Test: assign verdicts
+        run([sys.executable, "scripts/wiki_normalize_metrics.py", str(q_vault), "--in-place"])
+        run([sys.executable, "scripts/wiki_semantic_qa.py", str(q_vault), "--assign-verdicts", "--in-place"])
+        claims_after = load_jsonl(claims_path)
+        supported = [c for c in claims_after if c.get("verdict") == "supported"]
+        if not supported:
+            raise SystemExit("claim ledger: no claims marked as supported after verdict assignment")
+
+        # Test: contradicted claim does not enter stable concept
+        # Manually mark one claim as contradicted
+        claims_after[0]["verdict"] = "contradicted"
+        write_jsonl(claims_path, claims_after)
+        run([sys.executable, "scripts/wiki_concept_revision.py", str(q_vault), "--apply"])
+        concept_path = q_vault / "concepts" / "attention-mechanisms.md"
+        concept_text = concept_path.read_text(encoding="utf-8")
+        contradicted_id = str(claims_after[0]["claim_id"])
+        if contradicted_id in concept_text:
+            raise SystemExit("claim ledger: contradicted claim appeared in concept synthesis")
+
+        # Test: evidence_hash mismatch causes lint failure
+        claims_after[0]["verdict"] = "supported"
+        claims_after[0]["evidence_hash"] = "bad_hash_value"
+        write_jsonl(claims_path, claims_after)
+        lint_result = subprocess.run(
+            [sys.executable, "scripts/wiki_lint.py", str(q_vault), "--fail-on", "p1"],
+            cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        )
+        if lint_result.returncode == 0:
+            raise SystemExit("claim ledger: lint should fail on evidence_hash mismatch")
+
+        # Restore valid hash
+        eq = str(claims_after[0].get("evidence_quote", ""))
+        claims_after[0]["evidence_hash"] = hashlib.sha256(eq.encode("utf-8")).hexdigest()[:16]
+        write_jsonl(claims_path, claims_after)
+
+        # Test: stale source marks claims stale
+        from wiki_claims import mark_stale_claims
+        marked = mark_stale_claims(claims_path, {"LLM-0001"})
+        if marked == 0:
+            raise SystemExit("claim ledger: mark_stale_claims should mark claims")
+        claims_stale = load_jsonl(claims_path)
+        stale_claims = [c for c in claims_stale if c.get("verdict") == "stale"]
+        if not stale_claims:
+            raise SystemExit("claim ledger: no stale claims after mark_stale_claims")
+
     print("runtime eval passed")
     return 0
 
