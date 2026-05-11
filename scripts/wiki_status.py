@@ -302,7 +302,7 @@ def generate_actions(vault: Path) -> list[dict[str, Any]]:
                 links=[f"[[{source_id}]]"],
             ))
 
-    # Lint errors → action items
+    # Lint errors -> action items
     lint_info = lint_summary(vault)
     if lint_info["available"]:
         p0_count = lint_info["priorities"].get("P0", 0)
@@ -474,12 +474,12 @@ def list_links(items: list[dict[str, str]], empty: str) -> str:
 
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-SEVERITY_ICON = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "⚪"}
+SEVERITY_LABEL = {"critical": "[critical]", "high": "[high]", "medium": "[medium]", "low": "[low]"}
 
 
 def render_action_card(action: dict[str, Any]) -> str:
     severity = str(action.get("severity", "medium"))
-    icon = SEVERITY_ICON.get(severity, "⚪")
+    label = SEVERITY_LABEL.get(severity, "[medium]")
     title = str(action.get("title", "Untitled action"))
     kind = str(action.get("kind", ""))
     body = str(action.get("body", ""))
@@ -491,7 +491,7 @@ def render_action_card(action: dict[str, Any]) -> str:
     action_id = str(action.get("action_id", ""))
 
     lines = [
-        f"### {icon} {title}",
+        f"### {label} {title}",
         f"> **Kind:** `{kind}` | **Severity:** {severity} | **ID:** `{action_id}`",
         "",
         body,
@@ -577,7 +577,7 @@ def render_status(status: dict[str, Any]) -> str:
         f"- Science review queue items: **{counts['science_review_queue']}**\n"
         f"- Growth queue by status: {growth_status}\n"
         f"- Growth queue by action: {growth_actions}\n"
-        f"- Open actions: **{len(open_actions_sorted)}** — see Action Panel above\n\n"
+        f"- Open actions: **{len(open_actions_sorted)}** - see Action Panel above\n\n"
         "## Recent Sources\n\n"
         f"{list_links(status['recent_sources'], 'No stable source pages yet.')}\n\n"
         "## Recent Concepts\n\n"

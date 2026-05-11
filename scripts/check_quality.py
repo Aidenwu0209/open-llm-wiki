@@ -519,6 +519,11 @@ def check_status_dashboard_layer() -> None:
         if status_result.returncode != 0:
             print(status_result.stdout)
             fail("wiki_status.py failed on an initialized vault")
+        try:
+            status_result.stdout.encode("gbk")
+        except UnicodeEncodeError as exc:
+            print(status_result.stdout)
+            fail(f"wiki_status.py default output is not Windows GBK stdout-safe: {exc}")
         for text in ["Raw inbox", "Draft source pages", "Science review queue", "Agent Prompt Templates"]:
             if text not in status_result.stdout:
                 print(status_result.stdout)

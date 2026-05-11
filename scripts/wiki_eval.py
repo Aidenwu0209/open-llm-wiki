@@ -96,6 +96,10 @@ def main() -> int:
     vault = args.vault.resolve()
     run([sys.executable, "scripts/wiki_lint.py", str(vault), "--fail-on", "p1"])
     status_output = run([sys.executable, "scripts/wiki_status.py", str(vault)])
+    try:
+        status_output.encode("gbk")
+    except UnicodeEncodeError as exc:
+        raise SystemExit(f"status eval output is not Windows GBK stdout-safe: {exc}") from exc
     for expected in ["Pipeline Status", "Agent Prompt Templates", "Common Runtime Commands", "Safe Write Flow"]:
         if expected not in status_output:
             raise SystemExit(f"status eval output missing {expected!r}")
