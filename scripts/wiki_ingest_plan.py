@@ -103,7 +103,10 @@ def scan_raw_artifacts(vault: Path) -> list[dict[str, Any]]:
     candidates = []
     for combined in sorted(raw.glob("*_markdown/combined.md")):
         parent = combined.parent
-        raw_rel = rel(combined, vault)
+        stem = parent.name.removesuffix("_markdown")
+        source_path = raw / f"{stem}.pdf"
+        source_rel = rel(source_path, vault) if source_path.exists() else ""
+        artifact_rel = rel(combined, vault)
         manifest_path = parent / "manifest.json"
         manifest = {}
         if manifest_path.exists():
@@ -111,13 +114,19 @@ def scan_raw_artifacts(vault: Path) -> list[dict[str, Any]]:
                 manifest = json.loads(read_text(manifest_path))
             except json.JSONDecodeError:
                 pass
+        if not source_rel and isinstance(manifest.get("source_path"), str):
+            source_rel = str(manifest.get("source_path", ""))
+            source_path = vault / source_rel
+        source_hash = sha256_file(source_path) if source_rel and source_path.exists() else ""
         candidates.append({
-            "path": raw_rel,
-            "filename": combined.name,
-            "sha256": sha256_file(combined),
+            "path": source_rel or artifact_rel,
+            "filename": source_path.name if source_rel else combined.name,
+            "sha256": source_hash,
+            "artifact_path": artifact_rel,
+            "artifact_sha256": sha256_file(combined),
             "manifest_path": rel(manifest_path, vault) if manifest_path.exists() else "",
             "has_manifest": bool(manifest),
-            "source": "raw_artifact",
+            "source": "raw_source" if source_rel else "raw_artifact",
             "text_hash": sha256_text(read_text(combined)),
         })
     return candidates
@@ -204,6 +213,8 @@ def build_plan(vault: Path) -> list[dict[str, Any]]:
             "candidate_path": candidate.get("path", ""),
             "candidate_source": candidate.get("source", ""),
             "candidate_sha256": sha,
+            "artifact_path": candidate.get("artifact_path", ""),
+            "artifact_sha256": candidate.get("artifact_sha256", ""),
             "text_hash": text_hash,
             "has_manifest": candidate.get("has_manifest", False),
             "manifest_path": candidate.get("manifest_path", ""),
@@ -219,6 +230,8 @@ def build_plan(vault: Path) -> list[dict[str, Any]]:
                 "candidate_path": info["path"],
                 "candidate_source": "published",
                 "candidate_sha256": "",
+                "artifact_path": "",
+                "artifact_sha256": "",
                 "text_hash": info["body_hash"],
                 "has_manifest": False,
                 "manifest_path": "",
@@ -232,6 +245,8 @@ def build_plan(vault: Path) -> list[dict[str, Any]]:
                 "candidate_path": info["path"],
                 "candidate_source": "published",
                 "candidate_sha256": "",
+                "artifact_path": "",
+                "artifact_sha256": "",
                 "text_hash": info["body_hash"],
                 "has_manifest": False,
                 "manifest_path": "",
@@ -276,7 +291,7 @@ def render_plan(plan: list[dict[str, Any]], vault: Path) -> str:
     lines.append("")
     lines.append("| State | Meaning |")
     lines.append("| --- | --- |")
-    lines.append("| `ready` | Raw artifact or inbox file ready for parse and draft |")
+    lines.append("| `ready` | Raw source or inbox file ready for parse and draft |")
     lines.append("| `stageable` | Draft exists; needs QA before publishing |")
     lines.append("| `blocked` | Missing dependency (e.g. no parsed text) |")
     lines.append("| `cached` | Content hash matches existing source; will skip unless forced |")
@@ -304,6 +319,12 @@ def main() -> int:
         )
         text = "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in plan)
         write_text(plan_path, text)
+        json_path = ensure_within(
+            vault / "_state" / "ingest-plan.json",
+            vault / "_state",
+            "ingest plan must stay under _state/",
+        )
+        write_text(json_path, json.dumps({"vault": str(vault), "plan": plan}, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
     if args.format == "json":
         print(json_dump({"vault": str(vault), "plan": plan}))

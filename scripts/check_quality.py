@@ -1765,6 +1765,39 @@ def check_ingest_plan() -> None:
         plan_path = vault / "_state" / "ingest-plan.jsonl"
         if not plan_path.exists():
             fail("ingest plan --write did not create _state/ingest-plan.jsonl")
+        if not (vault / "_state" / "ingest-plan.json").exists():
+            fail("ingest plan --write did not create _state/ingest-plan.json")
+
+        raw_pdf = vault / "raw" / "paper_a.pdf"
+        artifact_dir = vault / "raw" / "paper_a_markdown"
+        artifact_dir.mkdir(parents=True)
+        raw_pdf.write_bytes(b"%PDF-1.4 paper a\n")
+        (artifact_dir / "combined.md").write_text("# Paper A\n\n7B parameters and HumanEval 75%.\n", encoding="utf-8")
+        artifact_result = subprocess.run(
+            [sys.executable, "scripts/wiki_ingest_plan.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if artifact_result.returncode != 0:
+            print(artifact_result.stdout)
+            fail("ingest plan raw source/artifact output failed")
+        artifact_data = json.loads(artifact_result.stdout)
+        artifact_items = [
+            item for item in artifact_data["plan"]
+            if item.get("artifact_path") == "raw/paper_a_markdown/combined.md"
+        ]
+        if not artifact_items:
+            print(artifact_result.stdout)
+            fail("ingest plan did not include parsed artifact metadata")
+        artifact_item = artifact_items[0]
+        if artifact_item.get("candidate_path") != "raw/paper_a.pdf":
+            print(json.dumps(artifact_item, indent=2, sort_keys=True))
+            fail("ingest plan used parsed artifact as candidate path instead of original raw source")
+        if artifact_item.get("candidate_source") != "raw_source":
+            print(json.dumps(artifact_item, indent=2, sort_keys=True))
+            fail("ingest plan used raw_artifact as candidate source despite original raw source existing")
 
         (vault / "raw" / "inbox").mkdir(parents=True, exist_ok=True)
         (vault / "raw" / "inbox" / "new-paper.pdf").write_bytes(b"fake pdf")
