@@ -1797,6 +1797,122 @@ def check_ingest_plan() -> None:
             fail("lint failed after ingest plan generation")
 
 
+def check_claim_ledger_schema() -> None:
+    """Verify claim ledger row schema compliance."""
+    import hashlib
+    vault = ROOT / "examples" / "minimal-vault"
+    claims_path = vault / "claims" / "claims.jsonl"
+    if not claims_path.exists():
+        fail("claim ledger: claims.jsonl not found in minimal-vault")
+
+    required_fields = {
+        "claim_id", "source_uuid", "source_id", "chunk_id", "claim_text",
+        "normalized_claim", "evidence_quote", "evidence_hash", "anchor",
+        "verdict", "created_at", "updated_at",
+    }
+
+    for i, line in enumerate(read(claims_path).splitlines(), 1):
+        if not line.strip():
+            continue
+        claim = json.loads(line)
+        missing = required_fields - set(claim)
+        if missing:
+            fail(f"claim ledger row {i}: missing fields {sorted(missing)}")
+        eq = str(claim.get("evidence_quote", ""))
+        if len(eq) > 300:
+            fail(f"claim ledger row {i}: evidence_quote exceeds 300 chars")
+        eh = str(claim.get("evidence_hash", ""))
+        if eq and eh:
+            expected = hashlib.sha256(eq.encode("utf-8")).hexdigest()[:16]
+            if eh != expected:
+                fail(f"claim ledger row {i}: evidence_hash mismatch")
+    print("claim ledger schema: OK")
+
+
+def check_claim_ledger_verdict_synthesis() -> None:
+    """Verify contradicted claims don't enter stable concept synthesis."""
+    import hashlib
+    with tempfile.TemporaryDirectory() as td:
+        vault = Path(td) / "vault"
+        shutil.copytree(ROOT / "examples" / "minimal-vault", vault)
+
+        run_cwd([sys.executable, "scripts/wiki_claims.py", str(vault)], ROOT)
+        run_cwd([sys.executable, "scripts/wiki_normalize_metrics.py", str(vault), "--in-place"], ROOT)
+        run_cwd([sys.executable, "scripts/wiki_semantic_qa.py", str(vault), "--assign-verdicts", "--in-place"], ROOT)
+
+        claims_path = vault / "claims" / "claims.jsonl"
+        claims = [json.loads(l) for l in read(claims_path).splitlines() if l.strip()]
+
+        # Mark first claim contradicted
+        claims[0]["verdict"] = "contradicted"
+        write_jsonl(claims_path, claims)
+
+        run_cwd([sys.executable, "scripts/wiki_concept_revision.py", str(vault), "--apply"], ROOT)
+
+        concept_path = vault / "concepts" / "attention-mechanisms.md"
+        if concept_path.exists():
+            concept_text = read(concept_path)
+            cid = str(claims[0]["claim_id"])
+            if cid in concept_text:
+                fail("claim ledger: contradicted claim appeared in concept synthesis")
+
+        # Verify lint catches evidence_hash mismatch
+        claims[0]["verdict"] = "supported"
+        claims[0]["evidence_hash"] = "bad_hash"
+        write_jsonl(claims_path, claims)
+
+        result = subprocess.run(
+            [sys.executable, "scripts/wiki_lint.py", str(vault), "--fail-on", "p1"],
+            cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        )
+        if result.returncode == 0:
+            fail("claim ledger: lint should fail on evidence_hash mismatch")
+
+    print("claim ledger verdict synthesis: OK")
+
+
+def check_claim_ledger_stale_hook() -> None:
+    """Verify stale source marks related claims stale."""
+    with tempfile.TemporaryDirectory() as td:
+        vault = Path(td) / "vault"
+        shutil.copytree(ROOT / "examples" / "minimal-vault", vault)
+
+        run_cwd([sys.executable, "scripts/wiki_claims.py", str(vault)], ROOT)
+
+        claims_path = vault / "claims" / "claims.jsonl"
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from wiki_claims import mark_stale_claims
+        marked = mark_stale_claims(claims_path, {"LLM-0001"})
+        if marked == 0:
+            fail("claim ledger: mark_stale_claims marked 0 claims")
+
+        claims = [json.loads(l) for l in read(claims_path).splitlines() if l.strip()]
+        stale = [c for c in claims if c.get("verdict") == "stale"]
+        if not stale:
+            fail("claim ledger: no stale claims after mark_stale_claims")
+        # Stale claims should have updated_at changed
+        for c in stale:
+            if not c.get("updated_at"):
+                fail("claim ledger: stale claim missing updated_at")
+
+    print("claim ledger stale hook: OK")
+
+
+def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
+    path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+
+def run_cwd(cmd: list[str], cwd: Path) -> str:
+    result = subprocess.run(cmd, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if result.returncode != 0:
+        print(result.stdout)
+        raise SystemExit(result.returncode)
+    return result.stdout
+
+
 def main() -> None:
     check_skills()
     check_docs()
@@ -1827,6 +1943,9 @@ def main() -> None:
     check_corpus_ingest_metric_noise_filter()
     check_corpus_ingest_resume_continues()
     check_ingest_plan()
+    check_claim_ledger_schema()
+    check_claim_ledger_verdict_synthesis()
+    check_claim_ledger_stale_hook()
     print("quality checks passed")
 
 

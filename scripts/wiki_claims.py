@@ -15,6 +15,52 @@ from wiki_common import WIKILINK_RE, ensure_within, json_dump, parse_frontmatter
 
 NUMBER_RE = re.compile(r"([-+]?\d+(?:,\d{3})*(?:\.\d+)?)\s*([A-Za-z%]+)?")
 
+LEDGER_FIELDS = frozenset({
+    "claim_id", "source_uuid", "source_id", "chunk_id", "claim_text",
+    "normalized_claim", "claim_type", "entities", "concepts",
+    "evidence_quote", "evidence_hash", "anchor", "confidence",
+    "verdict", "contradiction_group", "created_at", "updated_at",
+    # legacy / normalization fields kept for backward compatibility
+    "source_title", "page", "subject", "predicate", "object",
+    "value", "unit", "baseline", "evidence",
+    "metric_key", "normalized_value", "normalized_unit", "unit_family",
+    "baseline_key", "protocol_key", "normalization_warnings", "needs_review",
+})
+
+VALID_VERDICTS = frozenset({
+    "unreviewed", "supported", "weak", "contradicted", "retracted", "stale",
+})
+
+MAX_EVIDENCE_QUOTE_LENGTH = 300
+
+
+def source_uuid_from_id(source_id: str) -> str:
+    return hashlib.sha256(source_id.encode("utf-8")).hexdigest()[:32]
+
+
+def extract_evidence_quote(body: str, heading: str, max_len: int = MAX_EVIDENCE_QUOTE_LENGTH) -> str:
+    sec = section(body, heading)
+    if not sec:
+        return ""
+    lines = [line.strip() for line in sec.splitlines() if line.strip() and not line.strip().startswith("|") and not line.strip().startswith("#")]
+    text = " ".join(lines)
+    if len(text) > max_len:
+        text = text[:max_len].rsplit(" ", 1)[0] + "..."
+    return text
+
+
+def compute_evidence_hash(evidence_quote: str) -> str:
+    return hashlib.sha256(evidence_quote.encode("utf-8")).hexdigest()[:16]
+
+
+def extract_entities(text: str) -> list[str]:
+    words = re.findall(r"\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*\b", text)
+    seen: list[str] = []
+    for w in words:
+        if w not in seen and len(w) > 2:
+            seen.append(w)
+    return seen[:8]
+
 
 def parse_tags(raw: str) -> list[str]:
     return [item.strip(" []'\"") for item in raw.split(",") if item.strip(" []'\"")]
@@ -95,17 +141,34 @@ def concept_links(body: str, concept_names: set[str]) -> list[str]:
     return sorted(dict.fromkeys(links))
 
 
-def contribution_claim(source_id: str, title: str, body: str, concepts: list[str], relpath: str) -> dict[str, object] | None:
+def contribution_claim(source_id: str, title: str, body: str, concepts: list[str], relpath: str, chunk_id: str = "") -> dict[str, object] | None:
     contribution = normalize_space(section(body, "One-Sentence Contribution"))
     if not contribution:
         return None
     claim_id = f"claim-{short_hash(source_id + contribution)}"
+    evidence_quote = extract_evidence_quote(body, "One-Sentence Contribution")
+    now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     return {
         "claim_id": claim_id,
+        "source_uuid": source_uuid_from_id(source_id),
         "source_id": source_id,
+        "chunk_id": chunk_id,
+        "claim_text": contribution,
+        "normalized_claim": normalize_space(contribution.lower()),
+        "claim_type": "contribution",
+        "entities": extract_entities(contribution),
+        "concepts": concepts,
+        "evidence_quote": evidence_quote,
+        "evidence_hash": compute_evidence_hash(evidence_quote),
+        "anchor": relpath + "#One-Sentence Contribution",
+        "confidence": 0.74,
+        "verdict": "unreviewed",
+        "contradiction_group": "",
+        "created_at": now,
+        "updated_at": now,
+        # legacy fields
         "source_title": title,
         "page": relpath,
-        "claim_type": "contribution",
         "subject": title,
         "predicate": "contributes",
         "object": contribution,
@@ -113,15 +176,14 @@ def contribution_claim(source_id: str, title: str, body: str, concepts: list[str
         "unit": "",
         "baseline": "",
         "evidence": relpath + "#One-Sentence Contribution",
-        "concepts": concepts,
-        "confidence": 0.74,
         "needs_review": False,
     }
 
 
-def metric_claims(source_id: str, title: str, body: str, concepts: list[str], relpath: str) -> list[dict[str, object]]:
+def metric_claims(source_id: str, title: str, body: str, concepts: list[str], relpath: str, chunk_id: str = "") -> list[dict[str, object]]:
     claims: list[dict[str, object]] = []
     key_data = section(body, "Key Data")
+    now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     for row in parse_table_rows(key_data):
         if len(row) < 4:
             continue
@@ -129,13 +191,30 @@ def metric_claims(source_id: str, title: str, body: str, concepts: list[str], re
         numeric, unit = parse_value(raw_value)
         claim_id = f"claim-{short_hash(source_id + metric + raw_value + evidence)}"
         anchor = source_section_anchor(relpath, "Key Data", evidence)
+        claim_text = f"{metric}: {raw_value}"
+        evidence_quote = evidence if len(evidence) <= MAX_EVIDENCE_QUOTE_LENGTH else evidence[:MAX_EVIDENCE_QUOTE_LENGTH].rsplit(" ", 1)[0] + "..."
         claims.append(
             {
                 "claim_id": claim_id,
+                "source_uuid": source_uuid_from_id(source_id),
                 "source_id": source_id,
+                "chunk_id": chunk_id,
+                "claim_text": claim_text,
+                "normalized_claim": normalize_space(claim_text.lower()),
+                "claim_type": "metric",
+                "entities": extract_entities(claim_text),
+                "concepts": concepts,
+                "evidence_quote": evidence_quote,
+                "evidence_hash": compute_evidence_hash(evidence_quote),
+                "anchor": anchor,
+                "confidence": 0.82 if evidence else 0.55,
+                "verdict": "unreviewed",
+                "contradiction_group": "",
+                "created_at": now,
+                "updated_at": now,
+                # legacy fields
                 "source_title": title,
                 "page": relpath,
-                "claim_type": "metric",
                 "subject": title,
                 "predicate": metric,
                 "object": raw_value,
@@ -143,8 +222,6 @@ def metric_claims(source_id: str, title: str, body: str, concepts: list[str], re
                 "unit": unit,
                 "baseline": baseline,
                 "evidence": anchor,
-                "concepts": concepts,
-                "confidence": 0.82 if evidence else 0.55,
                 "needs_review": needs_metric_review(raw_value, evidence, numeric),
             }
         )
@@ -165,6 +242,27 @@ def extract_claims(vault: Path) -> list[dict[str, object]]:
             claims.append(first)
         claims.extend(metric_claims(source_id, title, body, concepts, relpath))
     return claims
+
+
+def mark_stale_claims(claims_path: Path, stale_source_ids: set[str]) -> int:
+    """Mark claims as stale when their source_id is in stale_source_ids.
+
+    Returns the number of claims marked stale. Writes updated claims back.
+    """
+    claims = []
+    for line in read_text(claims_path).splitlines():
+        if not line.strip():
+            continue
+        claims.append(json.loads(line))
+    marked = 0
+    now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    for claim in claims:
+        if str(claim.get("source_id", "")) in stale_source_ids and str(claim.get("verdict", "")) != "stale":
+            claim["verdict"] = "stale"
+            claim["updated_at"] = now
+            marked += 1
+    write_jsonl(claims_path, claims)
+    return marked
 
 
 def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:

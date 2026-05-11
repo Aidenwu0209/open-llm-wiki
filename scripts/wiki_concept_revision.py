@@ -15,6 +15,11 @@ from wiki_common import ensure_within, read_text, write_text
 START = "<!-- open-llm-wiki:semantic-claims:start -->"
 END = "<!-- open-llm-wiki:semantic-claims:end -->"
 
+# Verdict categories for concept synthesis filtering
+VERDICT_ALLOWED_FOR_SYNTHESIS = frozenset({"supported"})
+VERDICT_REQUIRES_REVIEW = frozenset({"weak", "unreviewed"})
+VERDICT_EXCLUDED_FROM_SYNTHESIS = frozenset({"contradicted", "retracted", "stale"})
+
 
 def load_claims(path: Path) -> list[dict[str, object]]:
     return [json.loads(line) for line in read_text(path).splitlines() if line.strip()]
@@ -48,7 +53,26 @@ def is_review_approved(claim: dict[str, object]) -> bool:
 def semantic_section(concept_id: str, claims: list[dict[str, object]], include_review_required: bool) -> str:
     rows = []
     held_for_review = 0
+    excluded_count = 0
+    review_queue_items: list[str] = []
     for claim in sorted(claims, key=lambda item: (str(item.get("source_id")), str(item.get("claim_id")))):
+        verdict = str(claim.get("verdict", "unreviewed"))
+
+        # Verdict-based filtering: contradicted/retracted/stale never enter synthesis
+        if verdict in VERDICT_EXCLUDED_FROM_SYNTHESIS:
+            excluded_count += 1
+            continue
+
+        # weak/unreviewed only enter review queue unless explicitly approved
+        if verdict in VERDICT_REQUIRES_REVIEW:
+            if not include_review_required and not is_review_approved(claim):
+                review_queue_items.append(
+                    f"| [[{claim.get('source_id', '')}]] | {claim.get('claim_type', '')} | {claim.get('claim_id', '')} | {verdict} |"
+                )
+                held_for_review += 1
+                continue
+
+        # supported claims (or approved review-required) pass through
         reasons = review_reasons(claim)
         if reasons and not include_review_required and not is_review_approved(claim):
             held_for_review += 1
@@ -56,25 +80,34 @@ def semantic_section(concept_id: str, claims: list[dict[str, object]], include_r
         if len(rows) >= 24:
             break
         rows.append(
-            "| [[{source_id}]] | {claim_type} | {claim} | {evidence} |".format(
+            "| [[{source_id}]] | {claim_type} | {claim} | {verdict} | {evidence} |".format(
                 source_id=claim.get("source_id", ""),
                 claim_type=claim.get("claim_type", ""),
                 claim=claim_label(claim).replace("|", "/"),
+                verdict=verdict,
                 evidence=str(claim.get("evidence", "")).replace("|", "/"),
             )
         )
-    table = "\n".join(rows) if rows else "| - | - | - | - |"
+    table = "\n".join(rows) if rows else "| - | - | - | - | - |"
+    review_table = "\n".join(review_queue_items) if review_queue_items else "- none"
+
     return (
         "## Semantic Claim Matrix\n\n"
         f"{START}\n"
-        "| Source | Type | Claim | Evidence |\n"
-        "| --- | --- | --- | --- |\n"
+        "| Source | Type | Claim | Verdict | Evidence |\n"
+        "| --- | --- | --- | --- | --- |\n"
         f"{table}\n"
         f"{END}\n\n"
         "## Revision Notes\n\n"
-        "- This section is generated from `claims/claims.jsonl` and excludes claims that require second-pass scientific review unless they are marked `science_review: approved`.\n"
+        "- This section is generated from `claims/claims.jsonl` and only uses `supported` claims by default.\n"
         f"- Held for review in this concept: {held_for_review}.\n"
-        "- Treat cross-source comparisons as inference unless units, baselines, and evaluation protocol are aligned.\n"
+        f"- Excluded from synthesis (contradicted/retracted/stale): {excluded_count}.\n"
+        "- Treat cross-source comparisons as inference unless units, baselines, and evaluation protocol are aligned.\n\n"
+        "## Review Queue\n\n"
+        "Claims with `weak` or `unreviewed` verdict awaiting confirmation:\n\n"
+        "| Source | Type | Claim | Verdict |\n"
+        "| --- | --- | --- | --- |\n"
+        f"{review_table}\n"
     )
 
 

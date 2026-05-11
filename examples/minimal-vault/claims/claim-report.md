@@ -1,6 +1,6 @@
 # Claim Extraction Report
-- date: 2026-05-03
-- output: C:/Users/43363/Desktop/wujinhe/.review-open-llm-wiki/examples/minimal-vault/claims/claims.jsonl
+- date: 2026-05-10
+- output: /private/tmp/open-llm-wiki/examples/minimal-vault/claims/claims.jsonl
 - claims: 6
 - needs_review: 1
 

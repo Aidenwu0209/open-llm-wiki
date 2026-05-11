@@ -12,6 +12,9 @@ from pathlib import Path
 
 from wiki_common import SOURCE_ID_RE, ensure_within, json_dump, read_text, write_text
 
+VALID_VERDICTS = frozenset({"unreviewed", "supported", "weak", "contradicted", "retracted", "stale"})
+EVIDENCE_QUOTE_MAX_LEN = 300
+
 
 @dataclass
 class Issue:
@@ -34,6 +37,51 @@ def load_claims(path: Path) -> list[dict[str, object]]:
             claims.append(json.loads(line))
         except json.JSONDecodeError as exc:
             raise SystemExit(f"invalid JSONL at {path}:{number}: {exc}") from exc
+    return claims
+
+
+def save_claims(path: Path, claims: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in claims)
+    write_text(path, text)
+
+
+def compute_evidence_hash(evidence_quote: str) -> str:
+    import hashlib
+    return hashlib.sha256(evidence_quote.encode("utf-8")).hexdigest()[:16]
+
+
+def verify_evidence_quote(claim: dict[str, object]) -> str:
+    """Return verdict based on evidence_quote integrity checks."""
+    evidence_quote = str(claim.get("evidence_quote", ""))
+    if not evidence_quote:
+        return "weak"
+    if len(evidence_quote) > EVIDENCE_QUOTE_MAX_LEN:
+        return "weak"
+    stored_hash = str(claim.get("evidence_hash", ""))
+    if stored_hash and stored_hash != compute_evidence_hash(evidence_quote):
+        return "weak"
+    anchor = str(claim.get("anchor") or claim.get("evidence", ""))
+    if anchor:
+        return "supported"
+    return "unreviewed"
+
+
+def assign_verdicts(claims: list[dict[str, object]], vault: Path) -> list[dict[str, object]]:
+    """Verify evidence quotes and assign verdicts to claims."""
+    source_ids = {path.stem for path in (vault / "sources").glob("LLM-*.md")}
+    for claim in claims:
+        current_verdict = str(claim.get("verdict", "unreviewed"))
+        if current_verdict == "stale":
+            continue
+        source_id = str(claim.get("source_id", ""))
+        if source_id not in source_ids:
+            claim["verdict"] = "stale"
+            claim["updated_at"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            continue
+        new_verdict = verify_evidence_quote(claim)
+        claim["verdict"] = new_verdict
+        claim["updated_at"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     return claims
 
 
@@ -103,6 +151,24 @@ def check_claims(vault: Path, claims: list[dict[str, object]]) -> list[Issue]:
             continue
         if claim.get("claim_type") == "metric" and "normalized_value" not in claim:
             issues.append(Issue("P2", subject, "metric claim has not been normalized"))
+
+        # Claim ledger: evidence_quote validation
+        evidence_quote = str(claim.get("evidence_quote", ""))
+        if not evidence_quote:
+            issues.append(Issue("P2", subject, "claim has no evidence_quote"))
+
+        # Claim ledger: evidence_hash validation
+        stored_hash = str(claim.get("evidence_hash", ""))
+        if evidence_quote and stored_hash:
+            expected_hash = compute_evidence_hash(evidence_quote)
+            if stored_hash != expected_hash:
+                issues.append(Issue("P1", subject, f"evidence_hash mismatch: stored={stored_hash} expected={expected_hash}"))
+
+        # Claim ledger: verdict validation
+        verdict = str(claim.get("verdict", "unreviewed"))
+        if verdict not in VALID_VERDICTS:
+            issues.append(Issue("P1", subject, f"invalid verdict: {verdict}"))
+
         path, line_number, fragment = evidence_target(vault, evidence)
         if path is None:
             issues.append(Issue("P2", subject, f"evidence is human-readable but not machine-resolvable: {evidence}"))
@@ -196,11 +262,27 @@ def main() -> int:
             "p1 fails on P0/P1; p2 fails on P0/P1/P2. Defaults to p1."
         ),
     )
+    parser.add_argument(
+        "--assign-verdicts",
+        action="store_true",
+        help="Verify evidence quotes and assign verdicts (supported/weak/unreviewed) to claims.",
+    )
+    parser.add_argument(
+        "--in-place",
+        action="store_true",
+        help="When used with --assign-verdicts, write updated claims back to the claims file.",
+    )
     args = parser.parse_args()
 
     vault = args.vault.resolve()
     claims_path = (args.claims or vault / "claims" / "claims.jsonl").resolve()
     claims = load_claims(claims_path)
+
+    if args.assign_verdicts:
+        claims = assign_verdicts(claims, vault)
+        if args.in_place:
+            save_claims(claims_path, claims)
+
     issues = check_claims(vault, claims)
     if args.format == "json":
         print(json_dump({"claims": len(claims), "issues": [issue.as_dict() for issue in issues]}))

@@ -39,6 +39,9 @@ REQUIRED_FILES = [
 SOURCE_FIELDS = {"id", "title", "status", "created", "updated", "source", "tags"}
 CONCEPT_FIELDS = {"id", "title", "created", "updated"}
 STALE_WORDS = ("latest", "current", "state of the art", "sota", "now")
+CLAIM_LEDGER_REQUIRED = {"claim_id", "source_id", "source_uuid", "claim_text", "evidence_quote", "evidence_hash", "anchor", "verdict", "created_at", "updated_at"}
+VALID_VERDICTS = frozenset({"unreviewed", "supported", "weak", "contradicted", "retracted", "stale"})
+VERDICT_EXCLUDED = frozenset({"contradicted", "retracted", "stale"})
 OBSIDIAN_SORTSPEC_ENTRIES = [
     "_dashboard.md",
     "index.md",
@@ -186,12 +189,15 @@ def check_claim_hygiene(vault: Path, findings: list[Finding]) -> None:
 
 
 def check_claim_graph(vault: Path, findings: list[Finding]) -> None:
+    import hashlib
+
     claims_path = vault / "claims" / "claims.jsonl"
     if not claims_path.exists():
         findings.append(Finding("P2", "claims/claims.jsonl", "claim graph has not been generated"))
         return
     source_ids = {path.stem for path in (vault / "sources").glob("LLM-*.md")}
     seen_sources: set[str] = set()
+    seen_claim_ids: dict[str, int] = {}
     for number, line in enumerate(read_text(claims_path).splitlines(), 1):
         if not line.strip():
             continue
@@ -200,16 +206,72 @@ def check_claim_graph(vault: Path, findings: list[Finding]) -> None:
         except json.JSONDecodeError:
             findings.append(Finding("P1", f"claims/claims.jsonl:{number}", "claim row is not valid JSON"))
             continue
+
+        claim_id = str(item.get("claim_id", ""))
         source_id = str(item.get("source_id", ""))
+
+        # claim_id uniqueness
+        if claim_id:
+            if claim_id in seen_claim_ids:
+                findings.append(Finding("P1", f"claims/claims.jsonl:{number}", f"duplicate claim_id {claim_id!r} (also row {seen_claim_ids[claim_id]})"))
+            else:
+                seen_claim_ids[claim_id] = number
+
+        # source reference
         if source_id not in source_ids:
             findings.append(Finding("P1", f"claims/claims.jsonl:{number}", f"claim references missing source {source_id!r}"))
         else:
             seen_sources.add(source_id)
-        if not item.get("claim_id") or not item.get("evidence"):
+
+        if not claim_id or not item.get("evidence"):
             findings.append(Finding("P2", f"claims/claims.jsonl:{number}", "claim is missing claim_id or evidence"))
+
+        # Claim ledger required fields
+        missing_ledger = CLAIM_LEDGER_REQUIRED - set(item)
+        if missing_ledger:
+            findings.append(Finding("P1", f"claims/claims.jsonl:{number}", f"claim missing ledger fields: {', '.join(sorted(missing_ledger)[:6])}"))
+
+        # evidence_hash validation
+        evidence_quote = str(item.get("evidence_quote", ""))
+        stored_hash = str(item.get("evidence_hash", ""))
+        if evidence_quote and stored_hash:
+            expected_hash = hashlib.sha256(evidence_quote.encode("utf-8")).hexdigest()[:16]
+            if stored_hash != expected_hash:
+                findings.append(Finding("P1", f"claims/claims.jsonl:{number}", f"evidence_hash mismatch: stored={stored_hash} expected={expected_hash}"))
+
+        # verdict validation
+        verdict = str(item.get("verdict", "unreviewed"))
+        if verdict not in VALID_VERDICTS:
+            findings.append(Finding("P1", f"claims/claims.jsonl:{number}", f"invalid verdict: {verdict!r}"))
+
     missing = sorted(source_ids - seen_sources)
     if source_ids and missing:
         findings.append(Finding("P2", "claims/claims.jsonl", f"sources missing extracted claims: {', '.join(missing[:8])}"))
+
+
+def check_synthesis_verdicts(vault: Path, findings: list[Finding]) -> None:
+    """Check that concept pages don't contain contradicted/retracted/stale claims in synthesis."""
+    claims_path = vault / "claims" / "claims.jsonl"
+    if not claims_path.exists():
+        return
+    excluded_claims: set[str] = set()
+    for line in read_text(claims_path).splitlines():
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        verdict = str(item.get("verdict", ""))
+        if verdict in VERDICT_EXCLUDED:
+            excluded_claims.add(str(item.get("claim_id", "")))
+
+    for page in load_pages(vault, folders=("concepts",)):
+        if "<!-- open-llm-wiki:semantic-claims:start -->" not in page.body:
+            continue
+        for claim_id in excluded_claims:
+            if claim_id in page.body:
+                findings.append(Finding("P1", page.relpath, f"concept synthesis contains excluded claim {claim_id} (contradicted/retracted/stale)"))
 
 
 def check_state_jsonl(vault: Path, findings: list[Finding]) -> None:
@@ -406,6 +468,7 @@ def lint(vault: Path, obsidian: bool = False, graph: bool = False) -> list[Findi
     check_log(vault, findings)
     check_claim_hygiene(vault, findings)
     check_claim_graph(vault, findings)
+    check_synthesis_verdicts(vault, findings)
     check_state_jsonl(vault, findings)
     check_ingest_plan(vault, findings)
     check_source_registry_traceability(vault, findings)
