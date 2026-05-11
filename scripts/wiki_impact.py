@@ -87,6 +87,19 @@ def _save_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     write_text(path, text)
 
 
+def _artifact_path_from_source_body(body: str) -> str:
+    import re
+    patterns = [
+        r"^- parsed markdown:\s+([^\s#]+(?:#\S+)?)\s*$",
+        r"\b(raw/[^\s)]+_markdown/combined\.md)(?:#\S+)?",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, body, flags=re.MULTILINE)
+        if match:
+            return match.group(1).split("#", 1)[0]
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Graph builder
 # ---------------------------------------------------------------------------
@@ -124,7 +137,6 @@ def build_edges(vault: Path) -> list[dict[str, Any]]:
             raw_pdf = raw_dir / f"{stem}.pdf"
             raw_hash = _hash_file(raw_pdf) if raw_pdf.exists() else ""
             art_hash = _hash_file(combined)
-            source_id_stem = stem.replace("_", "-").lower()
             _add_edge("raw_source", stem, "parse_artifact", combined.relative_to(vault).as_posix(),
                       "raw_source_to_parse_artifact", raw_hash, art_hash)
 
@@ -133,15 +145,15 @@ def build_edges(vault: Path) -> list[dict[str, Any]]:
     for source_path in sorted((vault / "sources").glob("LLM-*.md")):
         source_id = source_path.stem
         source_hash = _hash_file(source_path)
-        fields: dict[str, str] = {}
+        body = ""
         try:
             from wiki_common import parse_frontmatter
-            fields, _ = parse_frontmatter(source_path)
+            _fields, body = parse_frontmatter(source_path)
         except Exception:
             pass
-        raw_rel = fields.get("source", "")
-        if raw_rel:
-            _add_edge("parse_artifact", raw_rel, "chunk", source_id,
+        artifact_rel = _artifact_path_from_source_body(body)
+        if artifact_rel:
+            _add_edge("parse_artifact", artifact_rel, "chunk", source_id,
                       "parse_artifact_to_chunk", "", source_hash)
 
     # --- chunk -> claim ---

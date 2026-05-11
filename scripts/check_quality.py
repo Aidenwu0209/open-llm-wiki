@@ -1818,6 +1818,83 @@ def check_claim_ledger_stale_hook() -> None:
     print("claim ledger stale hook: OK")
 
 
+def check_impact_graph_raw_change_propagates() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("impact graph propagation vault initialization failed")
+        raw_pdf = vault / "raw" / "paper_a.pdf"
+        markdown_dir = vault / "raw" / "paper_a_markdown"
+        markdown_dir.mkdir(parents=True)
+        raw_pdf.write_bytes(b"%PDF-1.4 paper a v1\n")
+        (markdown_dir / "combined.md").write_text(
+            "# Paper A\n\n"
+            "Abstract\n"
+            "Paper A reports 7B parameters and HumanEval 75% against a 60% baseline for code evaluation. "
+            "The source is long enough for source ingestion, claim extraction, concept links, and impact propagation.\n",
+            encoding="utf-8",
+        )
+        for command, failure in [
+            ([sys.executable, "scripts/wiki_ingest_corpus.py", str(vault), "--today", "2026-05-03"], "impact ingest failed"),
+            ([sys.executable, "scripts/wiki_claims.py", str(vault)], "impact claim extraction failed"),
+            ([sys.executable, "scripts/wiki_impact.py", str(vault), "--build"], "impact graph build failed"),
+        ]:
+            result = subprocess.run(command, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            if result.returncode != 0:
+                print(result.stdout)
+                fail(failure)
+        edges = [
+            json.loads(line)
+            for line in read(vault / "_state" / "impact-graph.jsonl").splitlines()
+            if line.strip()
+        ]
+        artifact_edges = [edge for edge in edges if edge.get("relationship") == "parse_artifact_to_chunk"]
+        if not any(edge.get("from_id") == "raw/paper_a_markdown/combined.md" for edge in artifact_edges):
+            print(json.dumps(artifact_edges, indent=2, sort_keys=True))
+            fail("impact graph parse_artifact_to_chunk edge does not use artifact path as from_id")
+
+        raw_pdf.write_bytes(b"%PDF-1.4 paper a v2 changed raw evidence\n")
+        stale = subprocess.run(
+            [sys.executable, "scripts/wiki_impact.py", str(vault), "--stale", "--write-queue", "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if stale.returncode != 0:
+            print(stale.stdout)
+            fail("impact stale propagation failed")
+        payload = json.loads(stale.stdout)
+        item_types = {item.get("item_type") for item in payload.get("items", [])}
+        for expected in ["parse_artifact", "chunk", "claim", "concept_section"]:
+            if expected not in item_types:
+                print(stale.stdout)
+                fail(f"impact stale propagation did not include {expected}")
+        second = subprocess.run(
+            [sys.executable, "scripts/wiki_impact.py", str(vault), "--stale", "--write-queue", "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if second.returncode != 0:
+            print(second.stdout)
+            fail("impact stale queue idempotency check failed")
+        second_payload = json.loads(second.stdout)
+        if second_payload.get("stale_count") != payload.get("stale_count"):
+            print(stale.stdout)
+            print(second.stdout)
+            fail("impact stale queue duplicated items on repeated write")
+
+
 def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     path.write_text(
         "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
@@ -1865,6 +1942,7 @@ def main() -> None:
     check_claim_ledger_schema()
     check_claim_ledger_verdict_synthesis()
     check_claim_ledger_stale_hook()
+    check_impact_graph_raw_change_propagates()
     print("quality checks passed")
 
 
