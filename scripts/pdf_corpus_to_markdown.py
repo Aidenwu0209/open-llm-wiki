@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Batch-convert a directory of PDFs to Markdown through the cloud parser."""
+"""Batch-convert a directory of PDFs to Markdown through local or cloud parsers."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from argparse import Namespace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pdf_to_markdown import DEFAULT_API_URL, DEFAULT_TOKEN_ENV, convert
+from pdf_to_markdown import DEFAULT_API_URL, DEFAULT_TOKEN_ENV, PARSER_AUTO, convert
 
 
 LOG_FIELDS = ["timestamp_utc", "status", "input", "output", "message"]
@@ -43,6 +43,7 @@ def convert_one(args: argparse.Namespace, input_path: Path, output_dir: Path) ->
         output=output_dir,
         api_url=args.api_url,
         token_env=args.token_env,
+        parser=args.parser,
         file_type=0,
         timeout=args.timeout,
         retries=args.retries,
@@ -64,6 +65,12 @@ def main() -> int:
     parser.add_argument("--pattern", default="*.pdf", help="Input glob pattern, relative to input_dir.")
     parser.add_argument("--api-url", default=os.environ.get("OPEN_LLM_WIKI_LAYOUT_API_URL", DEFAULT_API_URL))
     parser.add_argument("--token-env", default=DEFAULT_TOKEN_ENV)
+    parser.add_argument(
+        "--parser",
+        choices=["auto", "local-text", "layout-api"],
+        default=PARSER_AUTO,
+        help="Parser backend. auto is local-text; use layout-api explicitly for external parsing.",
+    )
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--retries", type=int, default=2)
     parser.add_argument("--retry-delay", type=int, default=5)

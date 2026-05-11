@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert a PDF to Markdown through a configurable layout-parsing API.
+"""Convert a PDF to Markdown through a local parser or layout-parsing API.
 
 The API token is read from an environment variable. Do not hardcode tokens in
 this file, shell history, docs, or wiki pages.
@@ -24,6 +24,9 @@ from wiki_common import write_text
 DEFAULT_API_URL = "https://q6mbb0r0t8m9q4pf.aistudio-app.com/layout-parsing"
 DEFAULT_TOKEN_ENV = "OPEN_LLM_WIKI_LAYOUT_TOKEN"
 FALLBACK_TOKEN_ENV = "AI_STUDIO_LAYOUT_TOKEN"
+PARSER_AUTO = "auto"
+PARSER_LAYOUT_API = "layout-api"
+PARSER_LOCAL_TEXT = "local-text"
 RETRY_STATUS_CODES = {408, 409, 425, 429}
 SUSPICIOUS_TEXT_TOKENS = [
     chr(0xFFFD),
@@ -64,8 +67,12 @@ DEFAULT_OPTIONS = {
 }
 
 
+def configured_token(token_env: str) -> str:
+    return os.environ.get(token_env) or os.environ.get(FALLBACK_TOKEN_ENV) or ""
+
+
 def read_token(token_env: str) -> str:
-    token = os.environ.get(token_env) or os.environ.get(FALLBACK_TOKEN_ENV)
+    token = configured_token(token_env)
     if not token:
         raise SystemExit(
             f"Missing API token. Set {token_env}=<token>"
@@ -108,6 +115,77 @@ def build_payload(file_path: Path, file_type: int, options_file: Path | None) ->
             raise SystemExit("--options-file must contain a JSON object")
         payload.update(overrides)
     return payload
+
+
+def selected_parser(args: argparse.Namespace) -> str:
+    parser = getattr(args, "parser", PARSER_AUTO)
+    if parser != PARSER_AUTO:
+        return parser
+    return PARSER_LOCAL_TEXT
+
+
+def clean_extracted_text(text: str) -> str:
+    return text.encode("utf-8", errors="replace").decode("utf-8", errors="replace").replace("\x00", "")
+
+
+def convert_local_text(args: argparse.Namespace, input_path: Path, output_dir: Path) -> int:
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise SystemExit(
+            "local PDF text extraction requires the pypdf package. "
+            "Run `uv sync` or use `--parser layout-api` with a configured API token."
+        ) from exc
+
+    try:
+        reader = PdfReader(str(input_path))
+    except Exception as exc:
+        raise SystemExit(f"local PDF parser failed to open input: {exc}") from exc
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    markdown_paths: list[str] = []
+    combined_parts: list[str] = []
+    warnings: list[str] = []
+    title = input_path.stem.replace("_", " ")
+    for index, page in enumerate(reader.pages):
+        try:
+            page_text = clean_extracted_text(page.extract_text() or "")
+        except Exception as exc:  # pragma: no cover - depends on malformed PDFs.
+            page_text = ""
+            warnings.append(f"page_{index + 1}: extraction failed: {exc}")
+        page_markdown = f"# {title}\n\n## Page {index + 1}\n\n{page_text.strip()}\n".rstrip() + "\n"
+        warnings.extend(find_suspicious_text(page_markdown, f"doc_{index}.md"))
+        md_path = output_dir / f"doc_{index}.md"
+        write_text(md_path, page_markdown)
+        markdown_paths.append(str(md_path))
+        combined_parts.append(page_markdown.rstrip())
+
+    combined = output_dir / args.combined_name
+    combined_text = "\n\n---\n\n".join(part for part in combined_parts if part)
+    write_text(combined, combined_text)
+    warnings.extend(find_suspicious_text(combined_text, args.combined_name))
+    for warning in warnings:
+        print(f"warning: local PDF extraction: {warning}", file=sys.stderr)
+    if warnings and args.fail_on_suspicious_text:
+        raise SystemExit("suspicious text tokens found in local PDF output")
+
+    manifest = {
+        "input": str(input_path),
+        "parser": PARSER_LOCAL_TEXT,
+        "parser_version": "pypdf",
+        "file_type": args.file_type,
+        "documents": markdown_paths,
+        "combined": str(combined),
+        "download_images": False,
+        "pages": len(reader.pages),
+        "warnings": warnings,
+    }
+    write_text(output_dir / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+
+    print(f"combined markdown: {combined}")
+    print(f"manifest: {output_dir / 'manifest.json'}")
+    print("parser: local-text")
+    return 0
 
 
 def download_file(url: str, target: Path, timeout: int) -> None:
@@ -183,21 +261,28 @@ def convert(args: argparse.Namespace) -> int:
     if size > args.max_bytes:
         raise SystemExit(f"input is {size} bytes, above --max-bytes {args.max_bytes}")
 
-    payload = build_payload(input_path, args.file_type, args.options_file)
+    parser = selected_parser(args)
     if args.dry_run:
         output_dir = args.output.resolve()
         print(f"input: {input_path}")
         print(f"output: {output_dir}")
+        print(f"parser: {parser}")
         print(f"api_url: {args.api_url}")
         print(f"file_type: {args.file_type}")
-        print(f"payload_keys: {sorted(payload.keys())}")
-        print("dry run: no API request sent")
+        if parser == PARSER_LAYOUT_API:
+            payload_keys = sorted({"file", "fileType", "markdownIgnoreLabels", *DEFAULT_OPTIONS.keys()})
+            print(f"payload_keys: {payload_keys}")
+        print("dry run: no PDF conversion or API request sent")
         return 0
 
     output_dir = args.output.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    if parser == PARSER_LOCAL_TEXT:
+        return convert_local_text(args, input_path, output_dir)
+
     token = read_token(args.token_env)
+    payload = build_payload(input_path, args.file_type, args.options_file)
     headers = {
         "Authorization": f"token {token}",
         "Content-Type": "application/json",
@@ -249,6 +334,7 @@ def convert(args: argparse.Namespace) -> int:
 
     manifest = {
         "input": str(input_path),
+        "parser": PARSER_LAYOUT_API,
         "api_url": args.api_url,
         "file_type": args.file_type,
         "attempts": attempts,
@@ -266,9 +352,14 @@ def convert(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Convert a PDF to Markdown using a layout-parsing API.",
+        description="Convert a PDF to Markdown using local text extraction or a layout-parsing API.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
+            "Parser selection:\n"
+            "  --parser auto uses local text extraction and never sends document bytes to a remote service.\n"
+            "  --parser local-text never sends document bytes to a remote service.\n"
+            "  --parser layout-api requires an API token and may send document bytes to the configured endpoint.\n"
+            "\n"
             "API settings:\n"
             f"  Token is read from --token-env, default {DEFAULT_TOKEN_ENV}, with {FALLBACK_TOKEN_ENV} fallback.\n"
             f"  API URL defaults to OPEN_LLM_WIKI_LAYOUT_API_URL or {DEFAULT_API_URL}.\n"
@@ -289,6 +380,12 @@ def main() -> int:
         "--api-url",
         default=os.environ.get("OPEN_LLM_WIKI_LAYOUT_API_URL", DEFAULT_API_URL),
         help="Layout-parsing API URL. Defaults to OPEN_LLM_WIKI_LAYOUT_API_URL or the built-in endpoint.",
+    )
+    parser.add_argument(
+        "--parser",
+        choices=[PARSER_AUTO, PARSER_LOCAL_TEXT, PARSER_LAYOUT_API],
+        default=PARSER_AUTO,
+        help="Parser backend. auto is local-text; use layout-api explicitly for external parsing.",
     )
     parser.add_argument(
         "--token-env",

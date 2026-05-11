@@ -122,6 +122,18 @@ def heading_exists(path: Path, fragment: str) -> bool:
     return False
 
 
+def comparable_evidence_line(text: str) -> str:
+    """Normalize raw Markdown line text for visibility checks.
+
+    Parsed PDF text can contain literal angle-bracket tokens such as
+    `<tile_newline>` between a number and unit. Source pages display the cleaned
+    claim value, so the QA check should compare against the same cleaned view
+    instead of requiring byte-for-byte raw-line visibility.
+    """
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def is_qualitative_metric_placeholder(claim: dict[str, object]) -> bool:
     if claim.get("claim_type") != "metric":
         return False
@@ -187,7 +199,7 @@ def check_claims(vault: Path, claims: list[dict[str, object]]) -> list[Issue]:
             value = claim.get("object")
             if (
                 value
-                and str(value) not in lines[line_number - 1]
+                and str(value) not in comparable_evidence_line(lines[line_number - 1])
                 and claim.get("claim_type") == "metric"
                 and not is_qualitative_metric_placeholder(claim)
             ):

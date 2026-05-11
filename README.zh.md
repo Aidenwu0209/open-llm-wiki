@@ -65,7 +65,7 @@ Skill 负责判断和协调；runtime 脚本负责可重复检查：
 | `scripts/wiki_status.py` | 汇总 vault 健康状态，并可写入 Obsidian `_dashboard.md` |
 | `scripts/pdf_corpus_report.py` | 验证批量解析覆盖率、manifest、解析告警和语义命中 |
 | `scripts/pdf_corpus_to_markdown.py` | 批量将 PDF 文件夹转成 Markdown，并记录 TSV 审计日志 |
-| `scripts/pdf_to_markdown.py` | 通过可配置的 layout parsing API 将 PDF 转成 Markdown |
+| `scripts/pdf_to_markdown.py` | 通过本地文本解析或可配置的 layout parsing API 将 PDF 转成 Markdown |
 | `scripts/wiki_ingest_corpus.py` | 将解析后的 Markdown 语料发布为 source/QA/concept 页面 |
 | `scripts/wiki_claims.py` | 抽取 normalized claims 到 `claims/claims.jsonl` |
 | `scripts/wiki_normalize_metrics.py` | 归一化 metric 名称、单位、baseline 和数值 |

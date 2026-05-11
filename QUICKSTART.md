@@ -12,7 +12,7 @@ to other agents, but Claude Code is the default path.
 
 Optional:
 
-- PyMuPDF for local PDF parsing
+- pypdf for local PDF text extraction (installed by `uv sync`)
 - Obsidian for graph view, backlinks, local search, and daily reading
 - `OPEN_LLM_WIKI_LAYOUT_TOKEN` for cloud PDF-to-Markdown conversion of
   layout-heavy documents
@@ -139,11 +139,11 @@ Expected result:
 
 ## Convert PDF to Markdown
 
-For layout-heavy PDFs, use the project-local uv environment and keep the token
-outside the repository:
+Use the project-local uv environment to convert PDFs. By default,
+`--parser auto` uses local text extraction and does not send PDF bytes to a
+remote service:
 
 ```bash
-export OPEN_LLM_WIKI_LAYOUT_TOKEN="<token>"
 uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf \
   --output my-llm-wiki/raw/attention_markdown
 ```
@@ -161,15 +161,18 @@ Useful options:
 
 ```bash
 uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf --dry-run
+uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf --parser local-text
+uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf --parser layout-api
 uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf --retries 4 --timeout 900
 uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf --no-download-images
 uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf --api-url "$OPEN_LLM_WIKI_LAYOUT_API_URL"
 ```
 
-This sends the PDF bytes to the configured layout-parsing API. Use it only for
-documents you are allowed to process externally. The output includes
-`combined.md`, per-document Markdown files, downloaded images when enabled, and
-`manifest.json` with the API attempt count and parser warnings.
+Only `--parser layout-api` sends PDF bytes to the configured layout-parsing API.
+Use it only for documents you are allowed to process externally. The output
+includes `combined.md`, per-document Markdown files, downloaded images when
+enabled by the API parser, and `manifest.json` with parser metadata, API attempt
+count when applicable, and parser warnings.
 
 ## Run Semantic Self-Growth
 

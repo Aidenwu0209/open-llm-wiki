@@ -40,6 +40,22 @@ def append_section(original: str, query: str, body: str, timestamp: str) -> str:
     return original.rstrip() + section
 
 
+def proposal_document(query: str, body: str, timestamp: str) -> str:
+    return (
+        "# Query Writeback Proposal\n\n"
+        f"- created_at: {timestamp}\n"
+        "- status: proposed\n"
+        "- writeback_applied: false\n"
+        f"- query: {query}\n\n"
+        "## Proposed Content\n\n"
+        + body.strip()
+        + "\n\n"
+        "## Approval Gate\n\n"
+        "- This proposal is review evidence only.\n"
+        "- Do not copy it into source or concept pages until a human explicitly approves the writeback target and content.\n"
+    )
+
+
 def make_diff(path: Path, before: str, after: str) -> str:
     return "".join(
         difflib.unified_diff(
@@ -79,7 +95,14 @@ def semantic_qa_warning(status: SemanticQaStatus, vault: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Propose or apply a query writeback.")
     parser.add_argument("vault", type=Path)
-    parser.add_argument("--target", required=True, help="Target concept page relative to the vault.")
+    parser.add_argument(
+        "--target",
+        required=True,
+        help=(
+            "Target concept page relative to the vault, or a proposal artifact under "
+            "reviews/query-writeback/."
+        ),
+    )
     parser.add_argument("--query", required=True, help="Original user query.")
     parser.add_argument("--body", help="Markdown body to append.")
     parser.add_argument("--body-file", type=Path, help="File containing markdown body to append.")
@@ -93,9 +116,20 @@ def main() -> int:
 
     vault = args.vault.resolve()
     target = ensure_within(vault / args.target, vault, "target must stay inside the vault")
-    ensure_within(target, vault / "concepts", "writeback target must be under concepts/")
-    if not target.exists():
+    concept_root = vault / "concepts"
+    proposal_root = vault / "reviews" / "query-writeback"
+    is_concept_target = False
+    is_proposal_target = False
+    try:
+        ensure_within(target, concept_root, "writeback concept target must be under concepts/")
+        is_concept_target = True
+    except SystemExit:
+        ensure_within(target, proposal_root, "writeback target must be under concepts/ or reviews/query-writeback/")
+        is_proposal_target = True
+    if is_concept_target and not target.exists():
         raise SystemExit(f"target does not exist: {target}")
+    if is_proposal_target and target.suffix.lower() != ".md":
+        raise SystemExit("query writeback proposal target must be a Markdown file")
 
     if args.body_file:
         body = read_text(args.body_file)
@@ -105,8 +139,8 @@ def main() -> int:
         raise SystemExit("provide --body or --body-file")
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    before = read_text(target)
-    after = append_section(before, args.query, body, timestamp)
+    before = read_text(target) if target.exists() else ""
+    after = append_section(before, args.query, body, timestamp) if is_concept_target else proposal_document(args.query, body, timestamp)
     relative = rel(target, vault)
     diff = make_diff(Path(relative), before, after)
     semantic_status = latest_semantic_qa_status(vault)
@@ -119,6 +153,17 @@ def main() -> int:
         print(diff)
         print("\n# Proposed log entry")
         print(f"[{timestamp}] query-writeback | {relative} | agent | query: {args.query!r}")
+        return 0
+
+    if is_proposal_target:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        write_text(target, after)
+        log_path = vault / "log.md"
+        log_before = read_text(log_path) if log_path.exists() else "# Wiki Log\n"
+        log_entry = f"[{timestamp}] query-writeback-proposal | {relative} | agent | query: {args.query!r}\n"
+        write_text(log_path, log_before.rstrip() + "\n" + log_entry)
+        print(f"wrote query writeback proposal to {relative}")
+        print("writeback not applied")
         return 0
 
     if warning and not args.allow_failing_qa:

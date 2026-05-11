@@ -201,8 +201,8 @@ def install_plugin(
         record(actions, "skip", plugin_dir, "skipped because git is not installed")
         return False
     if skip_downloads:
-        record(actions, "skip", plugin_dir, "download skipped; plugin id will still be enabled")
-        return True
+        record(actions, "skip", plugin_dir, "download skipped; plugin id was not enabled")
+        return False
     if dry_run:
         record(actions, "plan", plugin_dir, f"download plugin {plugin_id}")
         return True

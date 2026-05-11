@@ -115,6 +115,10 @@ def read_jsonl(path: Path, issues: list[dict[str, str]]) -> list[tuple[int, dict
 
 
 def heading_exists(path: Path, anchor: str) -> bool:
+    line_match = re.fullmatch(r"L(\d+)", anchor.strip(), re.IGNORECASE)
+    if line_match:
+        line_number = int(line_match.group(1))
+        return 1 <= line_number <= len(read_text(path).splitlines())
     normalized = anchor.strip().lower().replace("-", " ")
     for line in read_text(path).splitlines():
         if not line.startswith("#"):

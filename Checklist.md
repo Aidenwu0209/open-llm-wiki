@@ -85,10 +85,11 @@ uv sync --dev --locked
 
 ## 4. PDF To Markdown Runtime
 
-- [ ] `scripts/pdf_to_markdown.py --help` documents required API settings and
-      output behavior.
-- [ ] PDF conversion reads API endpoint and token from CLI arguments or
-      environment variables rather than hardcoding credentials.
+- [ ] `scripts/pdf_to_markdown.py --help` documents local parser, API settings,
+      and output behavior.
+- [ ] PDF conversion is local-first by default; the API endpoint and token are
+      read from CLI arguments or environment variables rather than hardcoding
+      credentials when `--parser layout-api` is used.
 - [ ] PDF conversion writes Markdown and image assets only under the selected
       output directory.
 - [ ] PDF conversion creates a manifest or traceable output that links source

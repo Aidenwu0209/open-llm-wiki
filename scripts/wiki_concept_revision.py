@@ -153,6 +153,37 @@ def semantic_section(concept_id: str, claims: list[dict[str, object]], include_r
     )
 
 
+def representative_sources_section(claims: list[dict[str, object]]) -> str:
+    source_ids = sorted({str(claim.get("source_id", "")) for claim in claims if claim.get("source_id")})
+    rows = "\n".join(f"- [[{source_id}]]" for source_id in source_ids) if source_ids else "- none yet"
+    return "## Representative Sources\n\n" + rows + "\n"
+
+
+def ensure_representative_sources(text: str, claims: list[dict[str, object]]) -> str:
+    section = representative_sources_section(claims).rstrip()
+    heading = "## Representative Sources"
+    if heading in text:
+        start = text.index(heading)
+        tail = text[start + len(heading):]
+        next_match = re_search_next_heading(tail)
+        if next_match is None:
+            return text[:start].rstrip() + "\n\n" + section + "\n"
+        end = start + len(heading) + next_match
+        return text[:start].rstrip() + "\n\n" + section + "\n\n" + text[end:].lstrip("\n")
+    marker = "\n## Open Questions"
+    if marker in text:
+        before, after = text.split(marker, 1)
+        return before.rstrip() + "\n\n" + section + marker + after
+    return text.rstrip() + "\n\n" + section + "\n"
+
+
+def re_search_next_heading(text: str) -> int | None:
+    import re
+
+    match = re.search(r"\n##\s+", text)
+    return match.start() if match else None
+
+
 def update_frontmatter(text: str, supporting: int, contested: int, stale: int, concept_id: str) -> str:
     """Update concept frontmatter with claim counts."""
     if not text.startswith("---\n"):
@@ -291,6 +322,7 @@ def main() -> int:
         before = read_text(path)
         after = update_frontmatter(before, supporting, contested, stale, concept_id)
         after = replace_section(after, semantic_section(concept_id, items, args.include_review_required))
+        after = ensure_representative_sources(after, items)
         if before != after:
             changed.append(path.relative_to(vault).as_posix())
             if args.apply:

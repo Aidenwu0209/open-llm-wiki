@@ -73,7 +73,7 @@ The skills coordinate judgment. The runtime scripts handle repeatable checks:
 | `scripts/wiki_status.py` | summarize vault health and optionally write an Obsidian `_dashboard.md` |
 | `scripts/pdf_corpus_report.py` | verify converted corpus coverage, manifests, parser warnings, and semantic hits |
 | `scripts/pdf_corpus_to_markdown.py` | batch-convert a PDF folder with retries, skip logic, and a TSV audit log |
-| `scripts/pdf_to_markdown.py` | convert PDFs to Markdown through a configurable layout-parsing API |
+| `scripts/pdf_to_markdown.py` | convert PDFs to Markdown through local text extraction or a configurable layout-parsing API |
 | `scripts/wiki_ingest_corpus.py` | turn parsed Markdown corpus outputs into source/QA/concept pages |
 | `scripts/wiki_claims.py` | extract normalized claims into `claims/claims.jsonl` |
 | `scripts/wiki_normalize_metrics.py` | normalize metric names, units, baselines, and numeric values |
@@ -162,11 +162,11 @@ cp ~/papers/attention.pdf my-llm-wiki/raw/
 # Ingest this paper: my-llm-wiki/raw/attention.pdf
 ```
 
-For layout-heavy PDFs, convert to Markdown first with the project-local uv
-environment:
+Convert PDFs to Markdown first with the project-local uv environment. The
+default `--parser auto` path is local-first: it uses local text extraction and
+does not send PDF bytes to a remote service.
 
 ```bash
-export OPEN_LLM_WIKI_LAYOUT_TOKEN="<token>"
 uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf \
   --output my-llm-wiki/raw/attention_markdown
 ```
@@ -179,10 +179,12 @@ uv run python scripts/pdf_corpus_to_markdown.py my-llm-wiki/raw \
   --no-download-images
 ```
 
+Use explicit `--parser layout-api` for layout-heavy documents that need the cloud parser.
 The token is read from the environment and must not be committed. Override the
 endpoint with `OPEN_LLM_WIKI_LAYOUT_API_URL` or `--api-url` when using a
 different layout-parsing service. Transient cloud failures are retried, and
-each output `manifest.json` records the number of API attempts.
+each output `manifest.json` records parser metadata and the number of API
+attempts when the layout API is used.
 
 After sources exist, run the semantic growth loop:
 
@@ -219,10 +221,12 @@ proposal-first writeback flow.
 - Query writeback is read-only by default and requires approval unless the user
   has explicitly pre-authorized automatic wiki growth.
 - Lint is report-only by default.
-- Cloud OCR is optional and requires explicit configuration and user acceptance
+- Cloud OCR/layout parsing is optional and requires explicit configuration and user acceptance
   because document content may leave the local machine.
-- PDF-to-Markdown conversion sends document bytes to the configured layout
-  parsing API. Use it only for documents the user is allowed to process.
+- PDF-to-Markdown `--parser auto` uses local text extraction without a token;
+  `--parser layout-api` sends document bytes to the configured layout parsing
+  API. Use the API path only for documents the user is allowed to process
+  externally.
 - QA reports and contradiction reports are append-only audit records.
 - Graph exports are read-only derived views; they do not replace evidence
   anchors, science review, contradiction checks, or writeback approval.
