@@ -309,6 +309,67 @@ def check_source_registry(vault: Path, findings: list[Finding]) -> None:
                 f"published/qa_passed source_id {source_id} has no matching source page in sources/",
             ))
 
+def check_ingest_plan(vault: Path, findings: list[Finding]) -> None:
+    plan_path = vault / "_state" / "ingest-plan.json"
+    if not plan_path.exists():
+        return
+    try:
+        plan = json.loads(read_text(plan_path))
+    except json.JSONDecodeError as exc:
+        findings.append(Finding("P1", "_state/ingest-plan.json", f"invalid JSON: {exc}"))
+        return
+    if not isinstance(plan, dict):
+        findings.append(Finding("P1", "_state/ingest-plan.json", "plan must be a JSON object"))
+        return
+
+    # Check plan schema
+    for field in ("version", "generated_at", "vault", "total_sources", "items"):
+        if field not in plan:
+            findings.append(Finding("P1", "_state/ingest-plan.json", f"missing required field: {field}"))
+
+    items = plan.get("items", [])
+    if not isinstance(items, list):
+        findings.append(Finding("P1", "_state/ingest-plan.json", "items must be a list"))
+        return
+
+    valid_states = {"ready", "stageable", "blocked", "cached", "published", "failed", "stale"}
+    required_item_fields = {"source_path", "source_uuid", "source_id", "state", "reason", "recommended_action", "freshness_verdict"}
+
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            findings.append(Finding("P1", f"_state/ingest-plan.json (item {i + 1})", "plan item must be a JSON object"))
+            continue
+        missing = required_item_fields - set(item.keys())
+        if missing:
+            findings.append(Finding("P1", f"_state/ingest-plan.json (item {i + 1})", f"missing fields: {sorted(missing)}"))
+        state = item.get("state", "")
+        if state and state not in valid_states:
+            findings.append(Finding("P1", f"_state/ingest-plan.json (item {i + 1})", f"invalid state: {state!r}"))
+
+    # Cross-check with registry
+    registry_path = vault / "_state" / "source-registry.jsonl"
+    if registry_path.exists():
+        registry_rows = load_registry(registry_path)
+        registry_by_uuid = {r.get("source_uuid", ""): r for r in registry_rows if r.get("source_uuid")}
+        for i, item in enumerate(items):
+            uuid_val = item.get("source_uuid", "")
+            if uuid_val and uuid_val in registry_by_uuid:
+                reg_row = registry_by_uuid[uuid_val]
+                # Published in plan but not in registry
+                if item.get("state") == "published" and reg_row.get("status") != "published":
+                    findings.append(Finding(
+                        "P1",
+                        f"_state/ingest-plan.json (item {i + 1})",
+                        f"plan says published but registry status is {reg_row.get('status')!r}",
+                    ))
+                # Stale in plan but registry says fresh
+                if item.get("state") == "stale" and reg_row.get("status") == "published":
+                    findings.append(Finding(
+                        "P2",
+                        f"_state/ingest-plan.json (item {i + 1})",
+                        "plan says stale but registry still says published; re-run ingest plan",
+                    ))
+
 
 def load_optional_json(path: Path, vault: Path, findings: list[Finding], expected_type: type) -> object | None:
     try:
@@ -449,6 +510,7 @@ def lint(vault: Path, obsidian: bool = False, graph: bool = False) -> list[Findi
     check_synthesis_verdicts(vault, findings)
     check_state_jsonl(vault, findings)
     check_source_registry(vault, findings)
+    check_ingest_plan(vault, findings)
     if obsidian:
         check_obsidian(vault, findings)
     if graph:

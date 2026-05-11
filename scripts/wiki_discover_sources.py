@@ -13,13 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from wiki_common import ensure_within, json_dump, parse_frontmatter, read_text, write_text
-from wiki_source_registry import (
-    load_registry,
-    save_registry,
-    find_by_raw_path,
-    find_by_source_id,
-    raw_hash as compute_raw_hash,
-)
+from wiki_source_registry import load_registry, save_registry, raw_hash as compute_raw_hash
 
 
 ARXIV_RE = re.compile(r"(?<!\d)(\d{4}\.\d{4,5})(?:v\d+)?(?!\d)")
@@ -203,24 +197,20 @@ def main() -> int:
     registry = ensure_within(args.registry or vault / "_state" / "source-registry.jsonl", vault, "discovery outputs must stay inside the vault")
     report_path = ensure_within(args.report or vault / "_state" / "source-discovery-report.md", vault, "discovery outputs must stay inside the vault")
 
-    # Load existing registry to preserve source_uuid/source_id
     existing_rows = load_registry(registry)
     existing_by_path = {}
+    existing_by_source_id = {}
     for row in existing_rows:
         p = row.get("raw_path") or row.get("path", "")
         if p:
             existing_by_path[p] = row
+        sid = row.get("source_id", "")
+        if sid:
+            existing_by_source_id[sid] = row
 
     fresh_rows = registry_from_raw(vault) + registry_from_sources(vault)
     if args.arxiv_query:
         fresh_rows.extend(fetch_arxiv(args.arxiv_query, args.max_results))
-
-    # Merge: preserve existing source_uuid/source_id, add new rows
-    existing_by_source_id = {}
-    for row in existing_rows:
-        sid = row.get("source_id", "")
-        if sid:
-            existing_by_source_id[sid] = row
 
     merged = list(existing_rows)
     merged_paths = {row.get("raw_path") or row.get("path", "") for row in merged}
@@ -228,20 +218,21 @@ def main() -> int:
     for fresh in fresh_rows:
         fp = fresh.get("path", "")
         fresh_sid = fresh.get("source_id", "")
-        # Match by path first
         if fp in existing_by_path:
             existing = existing_by_path[fp]
-            for key in ("title", "title_key", "arxiv", "doi", "sha256", "raw_hash"):
+            for key in ("title", "title_key", "arxiv", "doi"):
                 if key in fresh:
                     existing[key] = fresh[key]
-        # Match by source_id for source-kind rows
+            for key in ("sha256", "raw_hash"):
+                if key in fresh and (existing.get("status") not in {"published", "stale"} or not existing.get(key)):
+                    existing[key] = fresh[key]
         elif fresh_sid and fresh_sid in existing_by_source_id:
             existing = existing_by_source_id[fresh_sid]
             for key in ("title", "title_key", "arxiv", "doi", "status"):
                 if key in fresh:
                     existing[key] = fresh[key]
             for key in ("sha256", "raw_hash"):
-                if fresh.get(key):
+                if fresh.get(key) and (existing.get("status") not in {"published", "stale"} or not existing.get(key)):
                     existing[key] = fresh[key]
         elif fp not in merged_paths and fresh_sid not in merged_source_ids:
             import uuid as _uuid

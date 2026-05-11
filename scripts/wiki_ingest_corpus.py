@@ -15,11 +15,10 @@ from pathlib import Path
 from wiki_common import ensure_within, read_text, write_text
 from wiki_source_registry import (
     allocate_source_id,
-    candidates_for_ingest,
     find_by_raw_hash,
     find_by_raw_path,
     load_registry,
-    raw_hash,
+    raw_hash as compute_raw_hash,
     register_raw,
     save_registry,
     update_status,
@@ -493,12 +492,11 @@ def find_registry_row_for_artifact(
 
 def ensure_registry_identity(row: dict[str, object], state_dir: Path, today: str) -> None:
     if not row.get("source_uuid"):
-        row["source_uuid"] = str(uuid.uuid4())
+        row["source_uuid"] = uuid.uuid4().hex
     if not row.get("source_id"):
         row["source_id"] = allocate_source_id(state_dir)
     if not row.get("created"):
         row["created"] = today
-
 
 def upsert_artifact_registry_entry(
     registry_path: Path,
@@ -509,7 +507,7 @@ def upsert_artifact_registry_entry(
     today: str,
 ) -> list[dict[str, object]]:
     artifact_rel = combined.relative_to(vault).as_posix()
-    artifact_hash = raw_hash(combined)
+    artifact_hash = compute_raw_hash(combined)
     source_file, raw_rel = original_source_for_artifact(vault, combined)
     stem = combined.parent.name.removesuffix("_markdown")
     existing = find_registry_row_for_artifact(rows, raw_rel, artifact_rel)
@@ -539,7 +537,7 @@ def upsert_artifact_registry_entry(
         save_registry(registry_path, rows)
         return load_registry(registry_path)
 
-    source_hash = raw_hash(source_file)
+    source_hash = compute_raw_hash(source_file)
     if existing is None:
         duplicate = find_by_raw_hash(rows, source_hash)
         if duplicate is not None:
@@ -582,7 +580,6 @@ def upsert_artifact_registry_entry(
     existing.update(
         {
             "raw_path": raw_rel,
-            "raw_hash": source_hash,
             "artifact_path": artifact_rel,
             "artifact_hash": artifact_hash,
             "artifact_status": "parsed",
@@ -592,14 +589,14 @@ def upsert_artifact_registry_entry(
             "updated": today,
         }
     )
+    if existing.get("status") not in {"published", "stale"} or not existing.get("raw_hash"):
+        existing["raw_hash"] = source_hash
     if existing.get("status") == "blocked":
         existing["status"] = "candidate"
     if existing.get("last_error") == "original raw evidence file is missing":
         existing.pop("last_error", None)
     save_registry(registry_path, rows)
     return load_registry(registry_path)
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Ingest raw/*_markdown/combined.md files into source pages.",
@@ -665,18 +662,36 @@ def main() -> int:
 
     items: list[Item] = []
     concept_items: dict[str, list[Item]] = defaultdict(list)
+    skipped_published = 0
+    skipped_stale = 0
     for combined in combined_files:
         artifact_rel = combined.relative_to(vault).as_posix()
-        _source_file, raw_rel = original_source_for_artifact(vault, combined)
+        source_file, raw_rel = original_source_for_artifact(vault, combined)
         reg_row = find_registry_row_for_artifact(registry_rows, raw_rel, artifact_rel)
         if reg_row is None:
             continue
-        if reg_row.get("status") == "blocked" or reg_row.get("kind") == "artifact_only":
+        ensure_registry_identity(reg_row, dirs["_state"], args.today)
+        if reg_row.get("status") == "blocked" or reg_row.get("kind") == "artifact_only" or source_file is None:
             continue
         if reg_row.get("duplicate_of"):
             continue
         source_id = reg_row["source_id"]
         source_path = ensure_within(dirs["sources"] / f"{source_id}.md", dirs["sources"], "source output must stay under sources/")
+
+        # Skip unchanged published sources
+        if source_path.exists() and reg_row.get("status") == "published":
+            current_hash = compute_raw_hash(source_file)
+            if current_hash == reg_row.get("raw_hash", ""):
+                skipped_published += 1
+                continue
+            else:
+                # Source changed since published: block stale re-ingest
+                update_status(registry_path, reg_row["source_uuid"], "stale",
+                              last_error="raw source hash changed since last published")
+                skipped_stale += 1
+                print(f"WARNING: {raw_rel} changed since published; marked stale, skipping")
+                continue
+
         if args.resume and source_path.exists():
             continue
         try:
@@ -694,21 +709,19 @@ def main() -> int:
                     ensure_within(dirs["qa-reports"] / f"{source_id}-contradiction.md", dirs["qa-reports"], "QA output must stay under qa-reports/"),
                     contradiction_text(item, args.today),
                 )
-                update_status(
-                    registry_path,
-                    reg_row["source_uuid"],
-                    "published",
-                    kind="source",
-                    artifact_path=artifact_rel,
-                    artifact_hash=raw_hash(combined),
-                    artifact_status="parsed",
-                    tags=item.tags,
-                    concepts=item.concepts,
-                )
+                publish_hash = compute_raw_hash(source_file)
+                update_status(registry_path, reg_row["source_uuid"], "published",
+                              kind="source", tags=item.tags, concepts=item.concepts,
+                              raw_hash=publish_hash,
+                              raw_path=raw_rel,
+                              artifact_path=artifact_rel,
+                              artifact_hash=compute_raw_hash(combined),
+                              artifact_status="parsed")
                 for concept in item.concepts:
                     concept_items[concept].append(item)
             else:
-                update_status(registry_path, reg_row["source_uuid"], "failed", last_error="QA score below 7.0")
+                update_status(registry_path, reg_row["source_uuid"], "failed",
+                              last_error="QA score below 7.0")
         except Exception as exc:
             update_status(registry_path, reg_row["source_uuid"], "failed", last_error=str(exc))
             raise
@@ -748,6 +761,10 @@ def main() -> int:
     print(f"ingested_sources={len(items)}")
     print(f"published_sources={len(list(dirs['sources'].glob('LLM-*.md')))}")
     print(f"concepts={len(list(dirs['concepts'].glob('*.md')))}")
+    if skipped_published:
+        print(f"skipped_published={skipped_published}")
+    if skipped_stale:
+        print(f"skipped_stale={skipped_stale}")
     return 0
 
 

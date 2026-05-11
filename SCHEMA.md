@@ -282,6 +282,56 @@ change already-assigned source IDs.
 Discovery and discovery reports are advisory. Discovery must not delete raw files
 or source pages.
 
+## Ingest Plan
+
+`_state/ingest-plan.json` is the runtime-owned plan that tells desktop and batch
+ingest pipelines what action to take for each source. Desktop clients should read
+this file instead of maintaining their own `desktop-ingest-plan.json`.
+
+Generate with: `python wiki_ingest_plan.py <vault> --write`
+
+Plan item schema:
+
+```json
+{
+  "source_path": "raw/paper_markdown/combined.md",
+  "source_hash": "sha256-of-source-file",
+  "artifact_path": "raw/paper_markdown/combined.md",
+  "artifact_hash": "sha256-of-artifact",
+  "parser": "layout-api",
+  "parser_version": "",
+  "source_uuid": "unique-id",
+  "source_id": "LLM-0001",
+  "state": "published",
+  "reason": "source already published and unchanged",
+  "recommended_action": "skip",
+  "freshness_verdict": "fresh"
+}
+```
+
+Plan states and their semantics:
+
+| State | Meaning | Action |
+| --- | --- | --- |
+| `ready` | Parsed artifact exists and is fresh | Ingest |
+| `stageable` | Markdown/txt available for local staging | Ingest via combined.md |
+| `blocked` | Needs parser or unsupported format | Run parser first |
+| `cached` | Source/artifact unchanged, safe to skip | Skip |
+| `published` | Already published, no re-ingest needed | Skip |
+| `failed` | Previous ingest failed, needs retry | Retry after fixing |
+| `stale` | Source hash changed, old artifact stale | Re-parse and re-ingest |
+
+### Desktop Migration
+
+Desktop clients that previously maintained their own
+`_state/desktop-ingest-plan.json` or `_state/desktop-ingest-registry.jsonl`
+should migrate to:
+
+1. Read `_state/source-registry.jsonl` for identity and status
+2. Read `_state/ingest-plan.json` for action recommendations
+3. Stop writing to desktop-owned plan/registry files
+4. Let the runtime manage all plan and registry state
+
 ## Growth Queue
 
 `_state/growth-queue.jsonl` records durable tasks with `task_id`, `action`,
