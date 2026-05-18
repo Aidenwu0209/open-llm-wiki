@@ -466,7 +466,37 @@ def merge_index(vault: Path, items: list[Item], concept_items: dict[str, list[It
     write_text(index_path, text.rstrip() + "\n")
 
 
+def original_source_from_manifest(vault: Path, combined: Path) -> tuple[Path, str] | None:
+    manifest_path = combined.parent / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        manifest = json.loads(read_text(manifest_path))
+    except json.JSONDecodeError:
+        return None
+    raw_root = (vault / "raw").resolve()
+    vault_root = vault.resolve()
+    for key in ("source_path", "input"):
+        value = manifest.get(key)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        candidate = Path(value)
+        if not candidate.is_absolute():
+            candidate = vault / candidate
+        resolved = candidate.resolve()
+        try:
+            resolved.relative_to(raw_root)
+        except ValueError:
+            continue
+        if resolved.is_file():
+            return resolved, resolved.relative_to(vault_root).as_posix()
+    return None
+
+
 def original_source_for_artifact(vault: Path, combined: Path) -> tuple[Path, str]:
+    manifest_source = original_source_from_manifest(vault, combined)
+    if manifest_source is not None:
+        return manifest_source
     stem = combined.parent.name.removesuffix("_markdown")
     for suffix in (".pdf", ".md", ".txt"):
         candidate = vault / "raw" / f"{stem}{suffix}"
