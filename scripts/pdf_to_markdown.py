@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert a PDF to Markdown through a configurable layout-parsing API.
+"""Convert a PDF to Markdown through a local parser or layout-parsing API.
 
 The API token is read from an environment variable. Do not hardcode tokens in
 this file, shell history, docs, or wiki pages.
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import sys
@@ -24,6 +25,7 @@ from wiki_common import write_text
 DEFAULT_API_URL = "https://q6mbb0r0t8m9q4pf.aistudio-app.com/layout-parsing"
 DEFAULT_TOKEN_ENV = "OPEN_LLM_WIKI_LAYOUT_TOKEN"
 FALLBACK_TOKEN_ENV = "AI_STUDIO_LAYOUT_TOKEN"
+LOCAL_PARSER_VERSION = "pypdf"
 RETRY_STATUS_CODES = {408, 409, 425, 429}
 SUSPICIOUS_TEXT_TOKENS = [
     chr(0xFFFD),
@@ -173,6 +175,114 @@ def find_suspicious_text(text: str, label: str) -> list[str]:
     return warnings
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def extract_local_pdf_pages(input_path: Path) -> list[str]:
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise SystemExit(
+            "local-text parser requires pypdf. Install pypdf or use --parser layout-api with an explicit API token."
+        ) from exc
+
+    reader = PdfReader(str(input_path))
+    pages: list[str] = []
+    for index, page in enumerate(reader.pages, start=1):
+        try:
+            text = page.extract_text() or ""
+        except Exception as exc:  # pragma: no cover - defensive around malformed PDFs
+            text = f"[page {index} text extraction failed: {exc}]"
+        pages.append(text.strip())
+    return pages
+
+
+def clean_local_text(text: str) -> str:
+    # Some PDFs expose lone UTF-16 surrogate code points through text extraction.
+    # Replace them before writing Markdown so one malformed glyph does not stop
+    # the entire local-first ingest pipeline.
+    return text.encode("utf-8", errors="replace").decode("utf-8")
+
+
+def convert_local_text(args: argparse.Namespace) -> int:
+    input_path = args.input.resolve()
+    if not input_path.exists():
+        raise SystemExit(f"input file not found: {input_path}")
+    if input_path.suffix.lower() != ".pdf":
+        raise SystemExit("local-text parser expects a PDF input")
+    size = input_path.stat().st_size
+    if size > args.max_bytes:
+        raise SystemExit(f"input is {size} bytes, above --max-bytes {args.max_bytes}")
+
+    output_dir = args.output.resolve()
+    if args.dry_run:
+        print(f"input: {input_path}")
+        print(f"output: {output_dir}")
+        print(f"parser: local-text")
+        print("dry run: no files written")
+        return 0
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    pages = extract_local_pdf_pages(input_path)
+    markdown_paths: list[str] = []
+    combined_parts: list[str] = []
+    warnings: list[str] = []
+    for index, text in enumerate(pages):
+        page_no = index + 1
+        text = clean_local_text(text)
+        markdown_text = f"# Page {page_no}\n\n{text}\n" if text else f"# Page {page_no}\n\n[No extractable text]\n"
+        warnings.extend(find_suspicious_text(markdown_text, f"doc_{index}.md"))
+        md_path = output_dir / f"doc_{index}.md"
+        write_text(md_path, markdown_text)
+        markdown_paths.append(str(md_path))
+        combined_parts.append(markdown_text.rstrip())
+
+    combined = output_dir / args.combined_name
+    combined_text = "\n\n---\n\n".join(combined_parts)
+    write_text(combined, combined_text)
+    warnings.extend(find_suspicious_text(combined_text, args.combined_name))
+    for warning in warnings:
+        print(f"warning: suspicious text: {warning}", file=sys.stderr)
+    if warnings and args.fail_on_suspicious_text:
+        raise SystemExit("suspicious text tokens found in local parser output")
+
+    manifest = {
+        "schema_version": 1,
+        "input": str(input_path),
+        "source_path": str(input_path),
+        "source_sha256": sha256_file(input_path),
+        "artifact_sha256": sha256_file(combined),
+        "parser": "local-text",
+        "parser_version": LOCAL_PARSER_VERSION,
+        "documents": markdown_paths,
+        "combined": str(combined),
+        "download_images": False,
+        "warnings": warnings,
+        "page_count": len(pages),
+        "anchors": {
+            "pages": True,
+            "lines": False,
+            "tables": False,
+            "figures": False,
+            "equations": False,
+        },
+        "limitations": [
+            "local-text parser extracts selectable PDF text only",
+            "table, figure, and equation anchors require a layout parser",
+        ],
+    }
+    write_text(output_dir / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
+
+    print(f"combined markdown: {combined}")
+    print(f"manifest: {output_dir / 'manifest.json'}")
+    return 0
+
+
 def convert(args: argparse.Namespace) -> int:
     input_path = args.input.resolve()
     if not input_path.exists():
@@ -266,7 +376,7 @@ def convert(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Convert a PDF to Markdown using a layout-parsing API.",
+        description="Convert a PDF to Markdown using a local parser or layout-parsing API.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "API settings:\n"
@@ -279,6 +389,12 @@ def main() -> int:
         ),
     )
     parser.add_argument("input", type=Path, help="Local PDF path.")
+    parser.add_argument(
+        "--parser",
+        choices=["auto", "local-text", "layout-api"],
+        default="layout-api",
+        help="Parser backend. auto and local-text use local PDF text extraction; layout-api uses the configured API.",
+    )
     parser.add_argument(
         "--output",
         type=Path,
@@ -311,7 +427,11 @@ def main() -> int:
     )
     parser.add_argument("--dry-run", action="store_true", help="Print API/output settings without sending the PDF.")
     parser.set_defaults(download_images=True)
-    return convert(parser.parse_args())
+    args = parser.parse_args()
+    parser_choice = "local-text" if args.parser in {"auto", "local-text"} else "layout-api"
+    if parser_choice == "local-text":
+        return convert_local_text(args)
+    return convert(args)
 
 
 if __name__ == "__main__":
