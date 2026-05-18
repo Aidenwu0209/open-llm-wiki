@@ -637,6 +637,48 @@ def check_semantic_qa_qualitative_metric_placeholder() -> None:
             fail("semantic QA still emitted a numeric visibility issue for a qualitative placeholder")
 
 
+def check_semantic_qa_metric_visibility_with_inline_tokens() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "minimal-vault"
+        shutil.copytree(ROOT / "examples" / "minimal-vault", vault)
+        source = vault / "sources" / "LLM-0001.md"
+        source.write_text(
+            read(source) + "\nThe thumbnail tile adds 14 <tile_newline> tokens to each row.\n",
+            encoding="utf-8",
+        )
+        line_number = len(read(source).splitlines())
+        claim = {
+            "claim_id": "claim-inline-token-metric",
+            "source_id": "LLM-0001",
+            "claim_type": "metric",
+            "subject": "Thumbnail tile",
+            "predicate": "Reported claim",
+            "object": "14 tokens",
+            "value": 14,
+            "unit": "tokens",
+            "baseline": "as stated in source",
+            "normalized_value": 14,
+            "normalized_unit": "tokens",
+            "unit_family": "tokens",
+            "evidence": f"sources/LLM-0001.md#L{line_number}",
+            "concepts": ["attention-mechanisms"],
+        }
+        (vault / "claims" / "claims.jsonl").write_text(json.dumps(claim) + "\n", encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, "scripts/wiki_semantic_qa.py", str(vault), "--fail-on", "p1"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode != 0:
+            print(result.stdout)
+            fail("semantic QA rejected a metric visible across an inline PDF token marker")
+        if "metric value is not visible on anchored line" in result.stdout:
+            print(result.stdout)
+            fail("semantic QA still treats inline PDF token markers as hiding visible metric text")
+
+
 def check_setup_script() -> None:
     text = read(ROOT / "setup.sh")
     if ".claude/skills" not in text:
@@ -1972,6 +2014,7 @@ def main() -> None:
     check_status_dashboard_layer()
     check_claim_extraction()
     check_semantic_qa_qualitative_metric_placeholder()
+    check_semantic_qa_metric_visibility_with_inline_tokens()
     check_setup_script()
     check_setup_python_probe()
     check_setup_runtime()

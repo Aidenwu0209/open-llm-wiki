@@ -132,6 +132,23 @@ def is_qualitative_metric_placeholder(claim: dict[str, object]) -> bool:
     return metric_key == "qualitative" and object_text == "qualitative claim" and not has_value and not has_normalized_value
 
 
+def normalize_metric_visibility_text(text: object) -> str:
+    value = str(text or "").strip().lower()
+    value = re.sub(r"<[^>\n]+>", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def metric_value_visible_on_line(claim: dict[str, object], line: str) -> bool:
+    value = str(claim.get("object") or "").strip()
+    if not value:
+        return True
+    if value in line:
+        return True
+    normalized_value = normalize_metric_visibility_text(value)
+    normalized_line = normalize_metric_visibility_text(line)
+    return bool(normalized_value and normalized_value in normalized_line)
+
+
 def check_claims(vault: Path, claims: list[dict[str, object]]) -> list[Issue]:
     issues: list[Issue] = []
     source_ids = {path.stem for path in (vault / "sources").glob("LLM-*.md")}
@@ -184,10 +201,8 @@ def check_claims(vault: Path, claims: list[dict[str, object]]) -> list[Issue]:
             if line_number < 1 or line_number > len(lines):
                 issues.append(Issue("P1", subject, f"evidence line is out of range: {evidence}"))
                 continue
-            value = claim.get("object")
             if (
-                value
-                and str(value) not in lines[line_number - 1]
+                not metric_value_visible_on_line(claim, lines[line_number - 1])
                 and claim.get("claim_type") == "metric"
                 and not is_qualitative_metric_placeholder(claim)
             ):
