@@ -25,7 +25,10 @@ def save_claims(path: Path, claims: list[dict[str, object]]) -> None:
     write_text(path, text)
 
 
-def assign_contradiction_groups(claims: list[dict[str, object]]) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+def assign_contradiction_groups(
+    claims: list[dict[str, object]],
+    tolerance: float = 0.35,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     """Assign contradiction_group IDs to claims based on normalized_claim, entities, and concepts overlap.
 
     Returns (updated_claims, group_descriptors).
@@ -61,7 +64,7 @@ def assign_contradiction_groups(claims: list[dict[str, object]]) -> tuple[list[d
         if high == 0:
             continue
         spread = (high - low) / abs(high)
-        if spread > 0.35:
+        if spread > tolerance:
             group_id = f"CG-{group_counter:04d}"
             group_counter += 1
             groups.append({
@@ -237,7 +240,7 @@ def main() -> int:
     claims = load_claims(claims_path)
 
     if args.assign_groups:
-        claims, _groups = assign_contradiction_groups(claims)
+        claims, _groups = assign_contradiction_groups(claims, args.tolerance)
         if args.in_place:
             save_claims(claims_path, claims)
 
