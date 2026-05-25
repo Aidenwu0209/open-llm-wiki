@@ -7,10 +7,11 @@ import argparse
 import json
 import subprocess
 import sys
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from wiki_common import ensure_within, read_text, write_text
+from wiki_common import ensure_within, json_dump, read_text, write_text
 
 
 VALID_ACTIONS = {"discover", "grow", "science-review", "concept-revision", "lint"}
@@ -107,6 +108,34 @@ def run_action(vault: Path, action: str) -> None:
         raise SystemExit(result.returncode)
 
 
+def sorted_queue(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    return sorted(rows, key=lambda item: (item.get("status"), item.get("priority"), item.get("due_at")))
+
+
+def queue_json(queue_path: Path, rows: list[dict[str, object]]) -> dict[str, object]:
+    due_now = datetime.now().isoformat()
+    by_status = Counter(str(row.get("status", "unknown")) for row in rows)
+    by_action = Counter(str(row.get("action", "unknown")) for row in rows)
+    due_pending = [
+        row
+        for row in rows
+        if row.get("status") == "pending" and str(row.get("due_at", "")) <= due_now
+    ]
+    pending = [row for row in rows if row.get("status") == "pending"]
+    next_pending = sorted(pending, key=lambda item: (item.get("due_at", ""), item.get("priority", 50)))[:5]
+    return {
+        "queue": queue_path.as_posix(),
+        "total": len(rows),
+        "summary": {
+            "by_status": dict(sorted(by_status.items())),
+            "by_action": dict(sorted(by_action.items())),
+            "due_pending": len(due_pending),
+        },
+        "next_pending": next_pending,
+        "tasks": sorted_queue(rows),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Manage the open-llm-wiki growth queue.")
     parser.add_argument("vault", type=Path)
@@ -118,6 +147,7 @@ def main() -> int:
     parser.add_argument("--priority", type=int, default=50)
     parser.add_argument("--cadence", choices=sorted(CADENCE_DAYS), default="now", help="Default queue plan cadence.")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--format", choices=["text", "json"], default="text", help="Output format for list.")
     args = parser.parse_args()
 
     vault = args.vault.resolve()
@@ -143,7 +173,10 @@ def main() -> int:
         print("enqueued" if added else "already queued")
         return 0
     if args.command == "list":
-        for row in sorted(rows, key=lambda item: (item.get("status"), item.get("priority"), item.get("due_at"))):
+        if args.format == "json":
+            print(json_dump(queue_json(queue_path, rows)))
+            return 0
+        for row in sorted_queue(rows):
             print(f"{row.get('status')} {row.get('due_at')} p{row.get('priority')} {row.get('action')} {row.get('target')} {row.get('task_id')}")
         return 0
     if args.command == "run-due":
