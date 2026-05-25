@@ -1947,6 +1947,46 @@ def check_ingest_plan_raw_source_stale_contract() -> None:
             fail("ingest plan recommended skip for changed raw PDF")
 
 
+def check_ingest_plan_archive_guidance() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("archive ingest plan vault initialization failed")
+        (vault / "raw" / "deepseek_paper_中文.zip").write_bytes(b"PK\x03\x04 archive placeholder\n")
+        plan_result = subprocess.run(
+            [sys.executable, "scripts/wiki_ingest_plan.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if plan_result.returncode != 0:
+            print(plan_result.stdout)
+            fail("archive ingest plan failed")
+        plan = json.loads(plan_result.stdout)
+        item = plan["items"][0]
+        if item.get("source_path") != "raw/deepseek_paper_中文.zip":
+            print(json.dumps(item, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("archive ingest plan did not report the zip source")
+        if item.get("state") != "blocked" or item.get("freshness_verdict") != "archive":
+            print(json.dumps(item, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("archive ingest plan did not use archive-specific blocked state")
+        if "extract archive" not in item.get("recommended_action", ""):
+            print(json.dumps(item, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("archive ingest plan did not tell the user to extract the archive")
+        if "parser" in item.get("recommended_action", "").lower():
+            print(json.dumps(item, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("archive ingest plan incorrectly recommended parser first")
+
+
 def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     path.write_text(
         "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
@@ -1996,6 +2036,7 @@ def main() -> None:
     check_claim_ledger_verdict_synthesis()
     check_claim_ledger_stale_hook()
     check_ingest_plan_raw_source_stale_contract()
+    check_ingest_plan_archive_guidance()
     print("quality checks passed")
 
 
