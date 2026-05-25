@@ -51,6 +51,45 @@ def make_diff(path: Path, before: str, after: str) -> str:
     )
 
 
+def proposal_text(relative: str, query: str, diff: str, log_entry: str, warning: str, timestamp: str) -> str:
+    sections = [
+        "# Query Writeback Proposal",
+        "",
+        f"- generated_at: {timestamp}",
+        f"- target: {relative}",
+        f"- query: {query}",
+        "- writeback_applied: false",
+        "- approval_required: true",
+    ]
+    if warning:
+        sections.extend(["", "## Semantic QA Warning", "", warning])
+    sections.extend(
+        [
+            "",
+            "## Proposed Diff",
+            "",
+            "```diff",
+            diff.rstrip(),
+            "```",
+            "",
+            "## Proposed Log Entry",
+            "",
+            "```text",
+            log_entry.rstrip(),
+            "```",
+            "",
+        ]
+    )
+    return "\n".join(sections)
+
+
+def resolve_proposal_output(vault: Path, output: Path) -> Path:
+    path = output if output.is_absolute() else vault / output
+    resolved = ensure_within(path, vault, "proposal output must stay inside the vault")
+    ensure_within(resolved, vault / "reviews" / "query-writeback", "proposal output must be under reviews/query-writeback/")
+    return resolved
+
+
 def latest_semantic_qa_status(vault: Path) -> SemanticQaStatus:
     reports = sorted((vault / "qa-reports").glob("semantic-qa-*.md"), key=lambda path: path.stat().st_mtime, reverse=True)
     if not reports:
@@ -83,6 +122,11 @@ def main() -> int:
     parser.add_argument("--query", required=True, help="Original user query.")
     parser.add_argument("--body", help="Markdown body to append.")
     parser.add_argument("--body-file", type=Path, help="File containing markdown body to append.")
+    parser.add_argument(
+        "--proposal-output",
+        type=Path,
+        help="Optional markdown proposal artifact path under reviews/query-writeback/. Default prints the diff only.",
+    )
     parser.add_argument("--apply", action="store_true", help="Apply the writeback. Default prints a diff only.")
     parser.add_argument(
         "--allow-failing-qa",
@@ -111,6 +155,12 @@ def main() -> int:
     diff = make_diff(Path(relative), before, after)
     semantic_status = latest_semantic_qa_status(vault)
     warning = semantic_qa_warning(semantic_status, vault) if semantic_status.blocks_writeback else ""
+    log_entry = f"[{timestamp}] query-writeback | {relative} | agent | query: {args.query!r}"
+
+    if args.proposal_output:
+        proposal_path = resolve_proposal_output(vault, args.proposal_output)
+        write_text(proposal_path, proposal_text(relative, args.query, diff, log_entry, warning, timestamp))
+        print(f"wrote writeback proposal to {rel(proposal_path, vault)}")
 
     if not args.apply:
         if warning:
@@ -118,7 +168,7 @@ def main() -> int:
             print()
         print(diff)
         print("\n# Proposed log entry")
-        print(f"[{timestamp}] query-writeback | {relative} | agent | query: {args.query!r}")
+        print(log_entry)
         return 0
 
     if warning and not args.allow_failing_qa:
@@ -129,8 +179,7 @@ def main() -> int:
     write_text(target, after)
     log_path = vault / "log.md"
     log_before = read_text(log_path) if log_path.exists() else "# Wiki Log\n"
-    log_entry = f"[{timestamp}] query-writeback | {relative} | agent | query: {args.query!r}\n"
-    write_text(log_path, log_before.rstrip() + "\n" + log_entry)
+    write_text(log_path, log_before.rstrip() + "\n" + log_entry + "\n")
     print(f"applied writeback to {relative}")
     return 0
 
