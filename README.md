@@ -162,12 +162,21 @@ cp ~/papers/attention.pdf my-llm-wiki/raw/
 # Ingest this paper: my-llm-wiki/raw/attention.pdf
 ```
 
-For layout-heavy PDFs, convert to Markdown first with the project-local uv
-environment:
+For selectable-text PDFs, convert to Markdown first with the local parser:
+
+```bash
+uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf \
+  --parser auto \
+  --output my-llm-wiki/raw/attention_markdown
+```
+
+For layout-heavy PDFs, explicitly choose the layout API and keep the token in
+the environment:
 
 ```bash
 export OPEN_LLM_WIKI_LAYOUT_TOKEN="<token>"
 uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf \
+  --parser layout-api \
   --output my-llm-wiki/raw/attention_markdown
 ```
 
@@ -176,13 +185,15 @@ For a paper corpus:
 ```bash
 uv run python scripts/pdf_corpus_to_markdown.py my-llm-wiki/raw \
   --output-root my-llm-wiki/raw \
+  --parser auto \
   --no-download-images
 ```
 
+Use `--parser layout-api` only when the user has approved external processing.
 The token is read from the environment and must not be committed. Override the
 endpoint with `OPEN_LLM_WIKI_LAYOUT_API_URL` or `--api-url` when using a
 different layout-parsing service. Transient cloud failures are retried, and
-each output `manifest.json` records the number of API attempts.
+API output `manifest.json` files record the number of attempts.
 
 After sources exist, run the semantic growth loop:
 

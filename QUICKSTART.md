@@ -139,12 +139,21 @@ Expected result:
 
 ## Convert PDF to Markdown
 
-For layout-heavy PDFs, use the project-local uv environment and keep the token
+For selectable-text PDFs, use the local parser:
+
+```bash
+uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf \
+  --parser auto \
+  --output my-llm-wiki/raw/attention_markdown
+```
+
+For layout-heavy PDFs, explicitly choose the layout API and keep the token
 outside the repository:
 
 ```bash
 export OPEN_LLM_WIKI_LAYOUT_TOKEN="<token>"
 uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf \
+  --parser layout-api \
   --output my-llm-wiki/raw/attention_markdown
 ```
 
@@ -154,6 +163,7 @@ unless `--force` is set and writes a TSV audit log:
 ```bash
 uv run python scripts/pdf_corpus_to_markdown.py my-llm-wiki/raw \
   --output-root my-llm-wiki/raw \
+  --parser auto \
   --no-download-images
 ```
 
@@ -161,15 +171,17 @@ Useful options:
 
 ```bash
 uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf --dry-run
+uv run python scripts/pdf_corpus_to_markdown.py my-llm-wiki/raw --parser auto --dry-run
 uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf --retries 4 --timeout 900
 uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf --no-download-images
 uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf --api-url "$OPEN_LLM_WIKI_LAYOUT_API_URL"
 ```
 
-This sends the PDF bytes to the configured layout-parsing API. Use it only for
-documents you are allowed to process externally. The output includes
+`--parser layout-api` sends the PDF bytes to the configured layout-parsing API.
+Use it only for documents you are allowed to process externally. The output includes
 `combined.md`, per-document Markdown files, downloaded images when enabled, and
-`manifest.json` with the API attempt count and parser warnings.
+`manifest.json` with the parser metadata, API attempt count when applicable, and
+parser warnings.
 
 ## Run Semantic Self-Growth
 

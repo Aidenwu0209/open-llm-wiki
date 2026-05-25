@@ -785,6 +785,28 @@ def check_pdf_to_markdown_help() -> None:
         print(result.stdout)
         fail(f"pdf_to_markdown.py --help missing expected guidance: {missing}")
 
+    corpus_help = subprocess.run(
+        [sys.executable, "scripts/pdf_corpus_to_markdown.py", "--help"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if corpus_help.returncode != 0:
+        print(corpus_help.stdout)
+        fail("pdf_corpus_to_markdown.py --help failed")
+    corpus_required = [
+        "--parser",
+        "auto",
+        "local-text",
+        "layout-api",
+        "Parser backend.",
+    ]
+    corpus_missing = [item for item in corpus_required if item not in corpus_help.stdout]
+    if corpus_missing:
+        print(corpus_help.stdout)
+        fail(f"pdf_corpus_to_markdown.py --help missing expected parser guidance: {corpus_missing}")
+
 
 def run_runtime_checks() -> None:
     commands = [
@@ -970,6 +992,8 @@ def check_pdf_corpus_to_markdown_progress_log() -> None:
                     str(input_dir),
                     "--output-root",
                     str(output_root),
+                    "--parser",
+                    "layout-api",
                     "--api-url",
                     f"http://127.0.0.1:{server.server_address[1]}/layout",
                     "--retries",
@@ -1011,6 +1035,39 @@ def check_pdf_corpus_to_markdown_progress_log() -> None:
     finally:
         thread.join(timeout=5)
         server.server_close()
+
+
+def check_pdf_corpus_to_markdown_local_parser_dry_run() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        input_dir = root / "pdfs"
+        output_root = root / "raw"
+        input_dir.mkdir()
+        (input_dir / "paper.pdf").write_bytes(b"%PDF-1.4 fake")
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/pdf_corpus_to_markdown.py",
+                str(input_dir),
+                "--output-root",
+                str(output_root),
+                "--parser",
+                "local-text",
+                "--dry-run",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode != 0:
+            print(result.stdout)
+            fail("corpus converter rejected local-text parser dry-run")
+        if "[parser=local-text]" not in result.stdout:
+            print(result.stdout)
+            fail("corpus converter dry-run did not show local parser plan")
+        if output_root.exists():
+            fail("corpus converter local parser dry-run wrote output files")
 
 
 def check_writeback_semantic_qa_gate() -> None:
@@ -1980,6 +2037,7 @@ def main() -> None:
     check_pdf_to_markdown_help()
     run_runtime_checks()
     check_pdf_to_markdown_http_errors()
+    check_pdf_corpus_to_markdown_local_parser_dry_run()
     check_pdf_corpus_to_markdown_progress_log()
     check_writeback_semantic_qa_gate()
     check_safety_boundaries()

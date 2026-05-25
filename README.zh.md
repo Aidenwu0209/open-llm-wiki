@@ -186,11 +186,22 @@ bash -n setup.sh
 `uv` 会在项目内使用 `.venv/`，依赖固定在 `uv.lock`，不需要污染全局 Python 环境。
 validator 通过 `python -m skills_ref.cli` 调用，避免 Windows 严格应用控制策略拦截生成的 `agentskills.exe`。
 
-PDF 转 Markdown 需要把文档内容发送到配置的 layout parsing API。token 只从环境变量读取：
+PDF 转 Markdown 默认可以走本地文本解析；只有显式选择 layout API 时才会把文档内容发送到外部服务。token 只从环境变量读取：
+
+优先使用本地解析：
+
+```bash
+uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf \
+  --parser auto \
+  --output my-llm-wiki/raw/attention_markdown
+```
+
+布局复杂且已获得外部处理授权时，再显式选择 layout API：
 
 ```bash
 export OPEN_LLM_WIKI_LAYOUT_TOKEN="<token>"
 uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf \
+  --parser layout-api \
   --output my-llm-wiki/raw/attention_markdown
 ```
 
@@ -199,10 +210,11 @@ uv run python scripts/pdf_to_markdown.py my-llm-wiki/raw/attention.pdf \
 ```bash
 uv run python scripts/pdf_corpus_to_markdown.py my-llm-wiki/raw \
   --output-root my-llm-wiki/raw \
+  --parser auto \
   --no-download-images
 ```
 
-云端解析会自动重试临时失败；每个输出目录的 `manifest.json` 会记录 API 尝试次数和解析告警。
+只有在明确传入 `--parser layout-api` 时才走云端解析；云端解析会自动重试临时失败，每个输出目录的 `manifest.json` 会记录 API 尝试次数和解析告警。
 
 有 source pages 后运行语义自增长循环：
 

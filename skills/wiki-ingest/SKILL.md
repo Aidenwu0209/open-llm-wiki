@@ -100,11 +100,11 @@ For an explicitly authorized paper corpus, use the batch wrapper first and then
 ingest the resulting `combined.md` files one source at a time:
 
 ```bash
-uv run python scripts/pdf_corpus_to_markdown.py "<vault>/raw" --output-root "<vault>/raw" --no-download-images
+uv run python scripts/pdf_corpus_to_markdown.py "<vault>/raw" --output-root "<vault>/raw" --parser auto --no-download-images
 ```
 
-Use cloud parsing only for sources under the configured service limits and only
-when the user accepts that document content leaves the local machine.
+Use `--parser layout-api` only for sources under the configured service limits
+and only when the user accepts that document content leaves the local machine.
 
 ### 2. Allocate ID
 

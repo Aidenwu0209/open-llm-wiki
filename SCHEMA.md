@@ -265,8 +265,8 @@ Plan item schema:
   "source_hash": "sha256-of-source-file",
   "artifact_path": "raw/paper_markdown/combined.md",
   "artifact_hash": "sha256-of-artifact",
-  "parser": "layout-api",
-  "parser_version": "",
+  "parser": "local-text",
+  "parser_version": "pypdf",
   "source_uuid": "unique-id",
   "source_id": "LLM-0001",
   "state": "published",
@@ -500,8 +500,8 @@ The vault may contain runtime scripts at `.open-llm-wiki/scripts/`:
 
 ```bash
 python .open-llm-wiki/scripts/pdf_corpus_report.py raw --fail-on-missing --fail-on-suspicious
-python .open-llm-wiki/scripts/pdf_corpus_to_markdown.py raw --output-root raw --no-download-images
-python .open-llm-wiki/scripts/pdf_to_markdown.py raw/source.pdf --output raw/source_markdown
+python .open-llm-wiki/scripts/pdf_corpus_to_markdown.py raw --output-root raw --parser auto --no-download-images
+python .open-llm-wiki/scripts/pdf_to_markdown.py raw/source.pdf --parser auto --output raw/source_markdown
 python .open-llm-wiki/scripts/wiki_ingest_corpus.py . --resume
 python .open-llm-wiki/scripts/wiki_claims.py .
 python .open-llm-wiki/scripts/wiki_normalize_metrics.py . --in-place
