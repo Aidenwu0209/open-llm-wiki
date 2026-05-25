@@ -28,6 +28,10 @@ PLAN_STATES = frozenset({
     "ready", "stageable", "blocked", "cached",
     "published", "failed", "stale",
 })
+IGNORED_RAW_FILENAMES = frozenset({
+    "_translation_cache.json",
+    "索引.md",
+})
 
 
 def _hash(path: Path) -> str:
@@ -36,6 +40,10 @@ def _hash(path: Path) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _is_ignored_raw_candidate(path: Path) -> bool:
+    return path.name in IGNORED_RAW_FILENAMES
 
 
 def _manifest_for_combined(vault: Path, combined: Path) -> dict[str, Any] | None:
@@ -240,6 +248,9 @@ def build_plan(vault: Path) -> dict[str, Any]:
     plan_items = []
     for row in rows:
         if row.get("duplicate_of"):
+            continue
+        raw_rel = row.get("raw_path", "") or row.get("path", "")
+        if raw_rel and _is_ignored_raw_candidate(Path(raw_rel)):
             continue
         item = classify_source(vault, row, combined_files)
         plan_items.append(item)

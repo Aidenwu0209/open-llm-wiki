@@ -1947,6 +1947,81 @@ def check_ingest_plan_raw_source_stale_contract() -> None:
             fail("ingest plan recommended skip for changed raw PDF")
 
 
+def check_ingest_plan_ignores_translation_sidecars() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("translation cache ingest plan vault initialization failed")
+        raw_dir = vault / "raw"
+        (raw_dir / "_translation_cache.json").write_text(
+            '{"cache":"tool sidecar, not evidence"}\n',
+            encoding="utf-8",
+        )
+        (raw_dir / "索引.md").write_text(
+            "# deepseek_paper 中文转换索引\n\n"
+            "| 原文件 | 中文文件 | 状态 |\n"
+            "|---|---|---|\n",
+            encoding="utf-8",
+        )
+        (raw_dir / "DeepSeek-中文.md").write_text(
+            "# DeepSeek 中文\n\nDeepSeek reports an evidence-backed result.\n",
+            encoding="utf-8",
+        )
+
+        plan_result = subprocess.run(
+            [sys.executable, "scripts/wiki_ingest_plan.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if plan_result.returncode != 0:
+            print(plan_result.stdout)
+            fail("translation cache ingest plan failed")
+        plan = json.loads(plan_result.stdout)
+        paths = [item.get("source_path") for item in plan.get("items", [])]
+        if "raw/_translation_cache.json" in paths:
+            print(json.dumps(plan, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("ingest plan treated _translation_cache.json as source evidence")
+        if "raw/索引.md" in paths:
+            print(json.dumps(plan, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("ingest plan treated translation index as source evidence")
+        if paths != ["raw/DeepSeek-中文.md"]:
+            print(json.dumps(plan, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("ingest plan did not preserve the real markdown source")
+
+        discover_result = subprocess.run(
+            [sys.executable, "scripts/wiki_discover_sources.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if discover_result.returncode != 0:
+            print(discover_result.stdout)
+            fail("translation cache source discovery failed")
+        registry_rows = [
+            json.loads(line)
+            for line in read(vault / "_state" / "source-registry.jsonl").splitlines()
+            if line.strip()
+        ]
+        registry_paths = {row.get("raw_path") or row.get("path") for row in registry_rows}
+        if "raw/_translation_cache.json" in registry_paths:
+            print(json.dumps(registry_rows, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("source discovery registered _translation_cache.json as source evidence")
+        if "raw/索引.md" in registry_paths:
+            print(json.dumps(registry_rows, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("source discovery registered translation index as source evidence")
+
+
 def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     path.write_text(
         "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
@@ -1996,6 +2071,7 @@ def main() -> None:
     check_claim_ledger_verdict_synthesis()
     check_claim_ledger_stale_hook()
     check_ingest_plan_raw_source_stale_contract()
+    check_ingest_plan_ignores_translation_sidecars()
     print("quality checks passed")
 
 

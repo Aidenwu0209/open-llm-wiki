@@ -18,6 +18,10 @@ from wiki_source_registry import load_registry, save_registry, raw_hash as compu
 
 ARXIV_RE = re.compile(r"(?<!\d)(\d{4}\.\d{4,5})(?:v\d+)?(?!\d)")
 DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.IGNORECASE)
+IGNORED_RAW_FILENAMES = frozenset({
+    "_translation_cache.json",
+    "索引.md",
+})
 
 
 def sha256(path: Path) -> str:
@@ -26,6 +30,10 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def is_ignored_raw_candidate(path: Path) -> bool:
+    return path.name in IGNORED_RAW_FILENAMES
 
 
 def norm_title(text: str) -> str:
@@ -65,7 +73,7 @@ def title_from_markdown(text: str) -> str:
 def registry_from_raw(vault: Path) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for path in sorted((vault / "raw").glob("*")):
-        if path.is_dir() or path.name.startswith("."):
+        if path.is_dir() or path.name.startswith(".") or is_ignored_raw_candidate(path):
             continue
         parsed_text = parsed_text_for_raw(vault, path)
         arxiv, doi = ids_from_text(f"{path.name}\n{parsed_text}")
