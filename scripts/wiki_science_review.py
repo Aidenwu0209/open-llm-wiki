@@ -11,6 +11,9 @@ from pathlib import Path
 from wiki_common import ensure_within, json_dump, read_text, write_text
 
 
+VERDICTS_REQUIRING_SCIENCE_REVIEW = frozenset({"weak", "unreviewed"})
+
+
 def load_claims(path: Path) -> list[dict[str, object]]:
     return [json.loads(line) for line in read_text(path).splitlines() if line.strip()]
 
@@ -19,8 +22,14 @@ def review_items(claims: list[dict[str, object]], limit: int) -> list[dict[str, 
     candidates = []
     for claim in claims:
         warnings = list(claim.get("normalization_warnings", []))
+        verdict = str(claim.get("verdict", "unreviewed")).lower()
         if claim.get("needs_review"):
             warnings.append("claim_marked_needs_review")
+        if (
+            verdict in VERDICTS_REQUIRING_SCIENCE_REVIEW
+            and str(claim.get("science_review", "")).lower() != "approved"
+        ):
+            warnings.append("verdict_requires_science_review")
         if claim.get("claim_type") == "metric" and (
             not claim.get("baseline_key")
             or not claim.get("protocol_key")
