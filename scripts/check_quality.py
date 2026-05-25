@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -1947,6 +1948,75 @@ def check_ingest_plan_raw_source_stale_contract() -> None:
             fail("ingest plan recommended skip for changed raw PDF")
 
 
+def check_ingest_plan_nested_raw_corpus_artifacts() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("ingest plan nested raw vault initialization failed")
+
+        raw_pdf = vault / "raw" / "deepseek_paper" / "paper_a.pdf"
+        raw_pdf.parent.mkdir(parents=True)
+        raw_bytes = b"%PDF-1.4 nested paper a\n"
+        raw_pdf.write_bytes(raw_bytes)
+        raw_hash_value = hashlib.sha256(raw_bytes).hexdigest()
+
+        markdown_dir = vault / "raw" / "paper_a_markdown"
+        markdown_dir.mkdir(parents=True)
+        combined = markdown_dir / "combined.md"
+        combined.write_text("# Paper A\n\nNested raw corpus artifact.\n", encoding="utf-8")
+        (markdown_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_path": str(raw_pdf),
+                    "source_sha256": raw_hash_value,
+                    "parser": "local-text",
+                    "parser_version": "pypdf",
+                    "combined": str(combined),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        plan_result = subprocess.run(
+            [sys.executable, "scripts/wiki_ingest_plan.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if plan_result.returncode != 0:
+            print(plan_result.stdout)
+            fail("ingest plan nested raw corpus plan failed")
+        plan = json.loads(plan_result.stdout)
+        if plan.get("total_sources") != 1:
+            print(json.dumps(plan, indent=2, sort_keys=True))
+            fail("ingest plan did not include nested raw corpus source")
+        item = plan["items"][0]
+        if item.get("source_path") != "raw/deepseek_paper/paper_a.pdf":
+            print(json.dumps(item, indent=2, sort_keys=True))
+            fail("ingest plan nested source_path does not point to original raw evidence")
+        if item.get("artifact_path") != "raw/paper_a_markdown/combined.md":
+            print(json.dumps(item, indent=2, sort_keys=True))
+            fail("ingest plan nested artifact_path does not point to combined artifact")
+        if item.get("state") != "ready" or item.get("recommended_action") != "ingest":
+            print(json.dumps(item, indent=2, sort_keys=True))
+            fail("ingest plan did not mark nested parsed artifact ready for ingest")
+        if item.get("parser") != "local-text" or item.get("parser_version") != "pypdf":
+            print(json.dumps(item, indent=2, sort_keys=True))
+            fail("ingest plan did not preserve nested parser metadata")
+
+
 def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     path.write_text(
         "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows),
@@ -1995,6 +2065,7 @@ def main() -> None:
     check_claim_ledger_schema()
     check_claim_ledger_verdict_synthesis()
     check_claim_ledger_stale_hook()
+    check_ingest_plan_nested_raw_corpus_artifacts()
     check_ingest_plan_raw_source_stale_contract()
     print("quality checks passed")
 
