@@ -18,6 +18,7 @@ from wiki_source_registry import load_registry, save_registry, raw_hash as compu
 
 ARXIV_RE = re.compile(r"(?<!\d)(\d{4}\.\d{4,5})(?:v\d+)?(?!\d)")
 DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.IGNORECASE)
+IGNORED_RAW_DIRS = frozenset({"__MACOSX", "inbox"})
 
 
 def sha256(path: Path) -> str:
@@ -42,6 +43,7 @@ def ids_from_text(text: str) -> tuple[str, str]:
 
 def parsed_text_for_raw(vault: Path, path: Path) -> str:
     candidates = [
+        path.parent / f"{path.stem}_markdown" / "combined.md",
         vault / "raw" / f"{path.stem}_markdown" / "combined.md",
         path.with_suffix(".md"),
         path.with_suffix(".txt"),
@@ -50,6 +52,16 @@ def parsed_text_for_raw(vault: Path, path: Path) -> str:
         if candidate.exists() and candidate.is_file():
             return read_text(candidate)[:20000]
     return ""
+
+
+def is_ignored_raw_path(raw_dir: Path, path: Path) -> bool:
+    if path.name.startswith("."):
+        return True
+    try:
+        parts = path.relative_to(raw_dir).parts[:-1]
+    except ValueError:
+        return True
+    return any(part.startswith(".") or part.endswith("_markdown") or part in IGNORED_RAW_DIRS for part in parts)
 
 
 def title_from_markdown(text: str) -> str:
@@ -64,8 +76,9 @@ def title_from_markdown(text: str) -> str:
 
 def registry_from_raw(vault: Path) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
-    for path in sorted((vault / "raw").glob("*")):
-        if path.is_dir() or path.name.startswith("."):
+    raw_dir = vault / "raw"
+    for path in sorted(raw_dir.rglob("*")):
+        if not path.is_file() or is_ignored_raw_path(raw_dir, path):
             continue
         parsed_text = parsed_text_for_raw(vault, path)
         arxiv, doi = ids_from_text(f"{path.name}\n{parsed_text}")
