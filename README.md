@@ -71,6 +71,7 @@ The skills coordinate judgment. The runtime scripts handle repeatable checks:
 | `scripts/wiki_init.py` | initialize a portable personal/team vault |
 | `scripts/wiki_obsidian_setup.py` | add an optional Obsidian profile with merged settings, plugins, theme, inbox, and diagram folders |
 | `scripts/wiki_status.py` | summarize vault health and optionally write an Obsidian `_dashboard.md` |
+| `scripts/wiki_extract_archive.py` | safely extract local ZIP corpus packages from `raw/` into audited raw evidence folders |
 | `scripts/pdf_corpus_report.py` | verify converted corpus coverage, manifests, parser warnings, and semantic hits |
 | `scripts/pdf_corpus_to_markdown.py` | batch-convert a PDF folder with retries, skip logic, and a TSV audit log |
 | `scripts/pdf_to_markdown.py` | convert PDFs to Markdown through a configurable layout-parsing API |

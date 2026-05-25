@@ -137,6 +137,20 @@ Expected result:
 7. normalized claims can be extracted into `claims/claims.jsonl`
 8. `log.md` records the operation
 
+## Extract A Local ZIP Corpus
+
+If papers arrive as a ZIP package, place the ZIP under the vault raw area first,
+then extract it locally. The extractor refuses path traversal, absolute paths,
+symlinks, and overwrites, and appends an audit manifest under `_state/`.
+
+```bash
+mkdir -p my-llm-wiki/raw/inbox
+cp deepseek_paper.zip my-llm-wiki/raw/inbox/
+uv run python scripts/wiki_extract_archive.py my-llm-wiki raw/inbox/deepseek_paper.zip --dry-run
+uv run python scripts/wiki_extract_archive.py my-llm-wiki raw/inbox/deepseek_paper.zip \
+  --output-dir raw/deepseek_paper
+```
+
 ## Convert PDF to Markdown
 
 For layout-heavy PDFs, use the project-local uv environment and keep the token
