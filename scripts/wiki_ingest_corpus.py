@@ -66,15 +66,54 @@ def clean_line(line: str) -> str:
     return re.sub(r"\s+", " ", line).strip(" #*\t\r\n")
 
 
+PAGE_HEADING_RE = re.compile(r"^(?:page|p\.?)\s+\d+$", re.IGNORECASE)
+
+
+def is_parser_page_heading(title: str) -> bool:
+    return bool(PAGE_HEADING_RE.match(title.strip()))
+
+
+def is_title_stop_line(title: str) -> bool:
+    lower = title.lower()
+    return (
+        lower in {"abstract", "contents", "keywords"}
+        or lower.startswith(("abstract ", "contents ", "keywords ", "arxiv:"))
+        or lower.startswith(("http://", "https://", "www."))
+    )
+
+
+def looks_like_author_line(title: str) -> bool:
+    return "," in title and ("*" in title or len(re.findall(r"\b[A-Z][a-z]+", title)) >= 4)
+
+
 def first_heading(lines: list[str], fallback: str) -> str:
     for line in lines[:80]:
         if line.strip().startswith("#"):
             title = clean_line(line)
-            if len(title) > 4 and not title.lower().startswith("abstract"):
+            if len(title) > 4 and not title.lower().startswith("abstract") and not is_parser_page_heading(title):
                 return title
+    candidate: list[str] = []
     for line in lines[:80]:
         title = clean_line(line)
-        if len(title) > 12 and not title.lower().startswith(("abstract", "contents")):
+        if not title or is_parser_page_heading(title):
+            continue
+        if is_title_stop_line(title) or looks_like_author_line(title):
+            if candidate:
+                break
+            continue
+        if len(title) > 12:
+            candidate.append(title)
+            joined = " ".join(candidate)
+            if len(candidate) >= 3 or len(joined) >= 180:
+                return joined[:220]
+            continue
+        if candidate:
+            break
+    if candidate:
+        return " ".join(candidate)[:220]
+    for line in lines[:80]:
+        title = clean_line(line)
+        if len(title) > 12 and not title.lower().startswith(("abstract", "contents")) and not is_parser_page_heading(title):
             return title
     return fallback
 

@@ -1535,6 +1535,54 @@ def check_corpus_ingest_fresh_vault() -> None:
             fail("fresh vault corpus ingest did not create sources/LLM-0001.md")
 
 
+def check_corpus_ingest_ignores_parser_page_title() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("parser page-title vault initialization failed")
+        markdown_dir = vault / "raw" / "DeepSeek_Coder_V2_2406.11931_markdown"
+        markdown_dir.mkdir(parents=True)
+        (vault / "raw" / "DeepSeek_Coder_V2_2406.11931.pdf").write_bytes(b"%PDF-1.4 fake")
+        (markdown_dir / "combined.md").write_text(
+            "# Page 1\n\n"
+            "DeepSeek-Coder-V2: Breaking the Barrier of Closed-Source\n"
+            "Models in Code Intelligence\n"
+            "Qihao Zhu*, Daya Guo*, Zhihong Shao*, Dejian Yang*\n\n"
+            "Abstract\n"
+            "DeepSeek-Coder-V2 reports 16B activated parameters, 236B total parameters, "
+            "and code benchmark improvements across HumanEval and MBPP+.\n\n"
+            "# Page 2\n\n"
+            "1 Introduction\n"
+            "The model extends context length and programming language coverage.\n",
+            encoding="utf-8",
+        )
+        ingest_result = subprocess.run(
+            [sys.executable, "scripts/wiki_ingest_corpus.py", str(vault), "--today", "2026-05-03"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if ingest_result.returncode != 0:
+            print(ingest_result.stdout)
+            fail("parser page-title corpus ingest failed")
+        source_text = read(vault / "sources" / "LLM-0001.md")
+        if 'title: "Page 1"' in source_text or "# Page 1" in source_text.split("---", 2)[-1][:80]:
+            print(source_text)
+            fail("corpus ingest used parser page marker as source title")
+        if 'title: "DeepSeek-Coder-V2: Breaking the Barrier of Closed-Source Models in Code Intelligence"' not in source_text:
+            print(source_text)
+            fail("corpus ingest did not recover the paper title after parser page marker")
+
+
 def check_corpus_ingest_generic_concepts() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -1988,6 +2036,7 @@ def main() -> None:
     check_pdf_corpus_report_nested_raw_layout()
     check_source_discovery_arxiv_filename()
     check_corpus_ingest_fresh_vault()
+    check_corpus_ingest_ignores_parser_page_title()
     check_corpus_ingest_generic_concepts()
     check_corpus_ingest_metric_noise_filter()
     check_corpus_ingest_resume_continues()
