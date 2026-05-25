@@ -285,11 +285,13 @@ def check_obsidian_setup_layer() -> None:
         if app.get("communityPluginsEnabled") is not True:
             fail("Obsidian app.json did not enable community plugins")
         plugins = json.loads(read(vault / ".obsidian" / "community-plugins.json"))
-        for plugin_id in ["dataview", "omnisearch", "custom-sort", "obsidian42-strange-new-worlds", "homepage"]:
-            if plugin_id not in plugins:
-                fail(f"minimal Obsidian profile did not enable {plugin_id}")
+        if plugins:
+            fail("Obsidian skip-downloads enabled plugins that were not installed")
         if len(plugins) != len(set(plugins)):
             fail("Obsidian community plugin list contains duplicates")
+        for plugin_id in ["dataview", "omnisearch", "custom-sort", "obsidian42-strange-new-worlds", "homepage"]:
+            if (vault / ".obsidian" / "plugins" / plugin_id / "manifest.json").exists():
+                fail(f"Obsidian skip-downloads unexpectedly installed {plugin_id}")
         for item in ["raw/inbox", "sortspec.md", ".obsidian/.gitignore", ".open-llm-wiki/obsidian/plugin-manifest.json"]:
             if not (vault / item).exists():
                 fail(f"Obsidian setup missing {item}")
@@ -315,7 +317,7 @@ def check_obsidian_setup_layer() -> None:
                 fail("Obsidian homepage default must point to _dashboard")
 
         lint_result = subprocess.run(
-            [sys.executable, "scripts/wiki_lint.py", str(vault), "--obsidian", "--fail-on", "p1"],
+            [sys.executable, "scripts/wiki_lint.py", str(vault), "--obsidian", "--fail-on", "p2"],
             cwd=ROOT,
             text=True,
             stdout=subprocess.PIPE,
@@ -323,7 +325,7 @@ def check_obsidian_setup_layer() -> None:
         )
         if lint_result.returncode != 0:
             print(lint_result.stdout)
-            fail("wiki_lint.py --obsidian produced P0/P1 findings for an initialized vault")
+            fail("wiki_lint.py --obsidian produced P0/P1/P2 findings for a skip-download initialized vault")
 
         appearance_path = vault / ".obsidian" / "appearance.json"
         appearance = json.loads(read(appearance_path))
