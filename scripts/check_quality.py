@@ -466,6 +466,24 @@ def check_graph_export_layer() -> None:
             print(lint_result.stdout)
             fail("wiki_lint.py --graph produced P0/P1 findings for the minimal vault")
 
+        line_anchor_vault = Path(tmp) / "line-anchor-vault"
+        shutil.copytree(ROOT / "examples" / "minimal-vault", line_anchor_vault)
+        claims_path = line_anchor_vault / "claims" / "claims.jsonl"
+        claims = [json.loads(line) for line in read(claims_path).splitlines() if line.strip()]
+        claims[0]["anchor"] = "sources/LLM-0001.md#L31-L32"
+        claims[0]["evidence"] = "sources/LLM-0001.md#L31-L32"
+        write_jsonl(claims_path, claims)
+        line_anchor_result = subprocess.run(
+            [sys.executable, "scripts/wiki_lint.py", str(line_anchor_vault), "--graph", "--fail-on", "p2"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if line_anchor_result.returncode != 0:
+            print(line_anchor_result.stdout)
+            fail("wiki_lint.py --graph rejected a valid line evidence anchor")
+
         outside = Path(tmp) / "outside.json"
         unsafe = subprocess.run(
             [

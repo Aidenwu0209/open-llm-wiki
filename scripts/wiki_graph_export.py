@@ -48,6 +48,7 @@ EDGE_TYPES = [
     "updates",
     "related-to",
 ]
+LINE_ANCHOR_RE = re.compile(r"^L(?P<start>\d+)(?:-L?(?P<end>\d+))?$", re.IGNORECASE)
 GRAPH_SCHEMA_SOURCE = Path(__file__).resolve().parents[1] / "graph" / "graph.schema.json"
 SOURCE_OR_CONCEPT_FOLDERS = ("sources", "drafts", "concepts")
 
@@ -125,6 +126,24 @@ def heading_exists(path: Path, anchor: str) -> bool:
     return False
 
 
+def line_anchor_bounds(anchor: str) -> tuple[int, int] | None:
+    match = LINE_ANCHOR_RE.fullmatch(anchor.strip())
+    if not match:
+        return None
+    start = int(match.group("start"))
+    end = int(match.group("end") or start)
+    return start, end
+
+
+def line_anchor_exists(path: Path, anchor: str) -> bool:
+    bounds = line_anchor_bounds(anchor)
+    if bounds is None:
+        return False
+    start, end = bounds
+    line_count = len(read_text(path).splitlines())
+    return 1 <= start <= end <= line_count
+
+
 def validate_evidence(vault: Path, evidence: str, fallback_source_id: str, issues: list[dict[str, str]]) -> None:
     if not evidence:
         issues.append(
@@ -152,6 +171,17 @@ def validate_evidence(vault: Path, evidence: str, fallback_source_id: str, issue
                 "fix": "update the evidence page path or restore the referenced page",
             }
         )
+        return
+    if anchor and line_anchor_bounds(anchor) is not None:
+        if not line_anchor_exists(page_path, anchor):
+            issues.append(
+                {
+                    "priority": "P2",
+                    "path": evidence,
+                    "message": "claim evidence line anchor was out of range",
+                    "fix": "update the evidence anchor to an existing line range",
+                }
+            )
         return
     if anchor and not heading_exists(page_path, anchor):
         issues.append(
