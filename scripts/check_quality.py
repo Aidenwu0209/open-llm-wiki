@@ -1741,6 +1741,8 @@ def check_dashboard_action_model() -> None:
         fail("dashboard actions: missing open_actions")
     if not isinstance(data["open_actions"], list):
         fail("dashboard actions: open_actions not a list")
+    if any(action.get("kind") == "contradiction_review" for action in data["open_actions"]):
+        fail("dashboard actions: clean no-contradiction reports must not create contradiction_review actions")
 
     # Test: _state/actions.jsonl exists and matches
     actions_jsonl = vault / "_state" / "actions.jsonl"
@@ -1771,6 +1773,83 @@ def check_dashboard_action_model() -> None:
         fail("dashboard actions: Action Panel missing from dashboard")
     if "What should I do next" not in dashboard:
         fail("dashboard actions: guidance text missing")
+    if "| Contradiction reports | 1 total / 0 needing review |" not in dashboard:
+        fail("dashboard actions: dashboard did not distinguish clean contradiction reports from actionable ones")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        clean_vault = Path(tmp) / "clean-vault"
+        shutil.copytree(vault, clean_vault)
+        report_path = clean_vault / "qa-reports" / "claim-contradictions-clean.md"
+        report_path.write_text(
+            "\n".join(
+                [
+                    "# Claim Contradiction Report",
+                    "- date: 2026-05-26",
+                    f"- vault: {clean_vault}",
+                    "- verdict: NO_CONFIRMED_CONTRADICTION",
+                    "- numeric_conflict_candidates: 0",
+                    "- explicit_markers: 0",
+                    "",
+                    "## Numeric Conflict Candidates",
+                    "- none",
+                    "",
+                    "## Policy",
+                    "",
+                    "A reviewer must verify candidates before adding `[CONTRADICTION YYYY-MM-DD]` to a concept page.",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        clean_result = subprocess.run(
+            [sys.executable, "scripts/wiki_status.py", str(clean_vault), "--actions"],
+            cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        )
+        if clean_result.returncode != 0:
+            print(clean_result.stdout)
+            fail("dashboard actions: clean contradiction report with policy marker check failed")
+        clean_data = json.loads(clean_result.stdout)
+        if any(action.get("kind") == "contradiction_review" for action in clean_data["open_actions"]):
+            print(clean_result.stdout)
+            fail("dashboard actions: clean contradiction report policy text created a contradiction_review action")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        review_vault = Path(tmp) / "review-vault"
+        shutil.copytree(vault, review_vault)
+        report_path = review_vault / "qa-reports" / "claim-contradictions-review.md"
+        report_path.write_text(
+            "\n".join(
+                [
+                    "# Claim Contradiction Report",
+                    "- date: 2026-05-26",
+                    f"- vault: {review_vault}",
+                    "- verdict: REVIEW_REQUIRED",
+                    "- numeric_conflict_candidates: 1",
+                    "- explicit_markers: 0",
+                    "",
+                    "## Numeric Conflict Candidates",
+                    "- evals / Accuracy (score): 10.0..20.0 across LLM-0001, LLM-0002",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        review_result = subprocess.run(
+            [sys.executable, "scripts/wiki_status.py", str(review_vault), "--actions"],
+            cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        )
+        if review_result.returncode != 0:
+            print(review_result.stdout)
+            fail("dashboard actions: review-required contradiction report check failed")
+        review_data = json.loads(review_result.stdout)
+        contradiction_actions = [a for a in review_data["open_actions"] if a.get("kind") == "contradiction_review"]
+        if len(contradiction_actions) != 1:
+            print(review_result.stdout)
+            fail("dashboard actions: review-required contradiction report did not create exactly one contradiction_review action")
+        affected = contradiction_actions[0].get("affected_objects", [])
+        if "qa-reports/claim-contradictions-review.md" not in affected or "qa-reports/LLM-0001-contradiction.md" in affected:
+            print(review_result.stdout)
+            fail("dashboard actions: contradiction_review affected objects did not filter clean reports")
 
     print("dashboard action model: OK")
 

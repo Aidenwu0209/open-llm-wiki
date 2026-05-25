@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
@@ -110,6 +111,38 @@ def recent_reports(vault: Path, limit: int) -> list[dict[str, str]]:
     for path in paths[:limit]:
         reports.append({"path": rel(path, vault), "title": path.stem})
     return reports
+
+
+def report_field(text: str, key: str) -> str:
+    match = re.search(rf"^\s*-\s*{re.escape(key)}:\s*(.+?)\s*$", text, re.MULTILINE)
+    return match.group(1).strip() if match else ""
+
+
+def report_int_field(text: str, key: str) -> int | None:
+    value = report_field(text, key)
+    if not value:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def contradiction_report_requires_review(path: Path) -> bool:
+    text = read_text(path)
+    numeric_candidates = report_int_field(text, "numeric_conflict_candidates")
+    explicit_markers = report_int_field(text, "explicit_markers")
+    contradictions_found = report_int_field(text, "contradictions_found")
+    if any(value is not None and value > 0 for value in (numeric_candidates, explicit_markers, contradictions_found)):
+        return True
+    verdict = report_field(text, "verdict").upper()
+    if verdict:
+        return verdict != "NO_CONFIRMED_CONTRADICTION"
+    if "[CONTRADICTION" in text or "CANDIDATE_REVIEW_REQUIRED" in text:
+        return True
+    if contradictions_found == 0 or "no contradictions detected" in text.lower():
+        return False
+    return True
 
 
 def stale_concepts(vault: Path) -> list[dict[str, str]]:
@@ -235,16 +268,17 @@ def generate_actions(vault: Path) -> list[dict[str, Any]]:
 
     # Contradiction candidates
     contradiction_reports = markdown_files(vault / "qa-reports", "*contradiction*.md")
-    if contradiction_reports:
+    actionable_contradiction_reports = [p for p in contradiction_reports if contradiction_report_requires_review(p)]
+    if actionable_contradiction_reports:
         actions.append(make_action(
             kind="contradiction_review",
             severity="high",
-            title=f"Review {len(contradiction_reports)} contradiction report(s)",
-            body=f"{len(contradiction_reports)} contradiction report(s) exist. Resolve candidates before synthesis.",
+            title=f"Review {len(actionable_contradiction_reports)} contradiction report(s)",
+            body=f"{len(actionable_contradiction_reports)} contradiction report(s) contain candidates or non-clean verdicts. Resolve candidates before synthesis.",
             reason="Unresolved contradictions may produce incorrect concept synthesis.",
             primary_object_type="reports",
             primary_object_id="qa-reports/",
-            affected_objects=[rel(p, vault) for p in contradiction_reports[:8]],
+            affected_objects=[rel(p, vault) for p in actionable_contradiction_reports[:8]],
             recommended_action="Review contradiction reports and confirm or dismiss candidates.",
             command="python .open-llm-wiki/scripts/wiki_contradictions.py . --write-report",
         ))
@@ -411,6 +445,7 @@ def build_status(vault: Path, limit: int = 8) -> dict[str, Any]:
     growth_status = Counter(str(row.get("status", "unknown")) for row in growth_queue)
     growth_actions = Counter(str(row.get("action", "unknown")) for row in growth_queue)
     contradiction_reports = markdown_files(vault / "qa-reports", "*contradiction*.md")
+    actionable_contradiction_reports = [p for p in contradiction_reports if contradiction_report_requires_review(p)]
 
     prompt_templates = []
     for template in PROMPT_TEMPLATES:
@@ -438,6 +473,7 @@ def build_status(vault: Path, limit: int = 8) -> dict[str, Any]:
             "science_review_queue": len(science_queue),
             "qa_reports": len(markdown_files(vault / "qa-reports")),
             "contradiction_reports": len(contradiction_reports),
+            "contradiction_reports_needing_review": len(actionable_contradiction_reports),
             "concepts": len(markdown_files(vault / "concepts")),
             "growth_queue": len(growth_queue),
             "growth_queue_pending": growth_status.get("pending", 0),
@@ -566,7 +602,7 @@ def render_status(status: dict[str, Any]) -> str:
         f"| Claims | {counts['claims']} total / {counts['claims_needing_review']} needing review | Run science review before treating review-required claims as trusted |\n"
         f"| Science review queue | {counts['science_review_queue']} {plural(counts['science_review_queue'], 'item')} | Review manually; do not auto-approve |\n"
         f"| QA reports | {counts['qa_reports']} | Check the latest report before writeback |\n"
-        f"| Contradiction reports | {counts['contradiction_reports']} | Resolve candidates before synthesis |\n"
+        f"| Contradiction reports | {counts['contradiction_reports']} total / {counts['contradiction_reports_needing_review']} needing review | Resolve candidates only when reports contain candidates or non-clean verdicts |\n"
         f"| Concepts | {counts['concepts']} | Keep every material statement cited |\n"
         f"| Growth queue | {counts['growth_queue']} total / {counts['growth_queue_pending']} pending | Run due tasks only when expected |\n"
         f"| Stale concepts | {counts['stale_concepts']} | Refresh pages with time-sensitive wording |\n"
