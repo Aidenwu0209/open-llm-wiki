@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from wiki_common import ensure_within, json_dump, parse_frontmatter, read_text, write_text
+from wiki_raw_support import is_auxiliary_raw_source_path
 from wiki_source_registry import load_registry, save_registry, raw_hash as compute_raw_hash
 
 
@@ -65,7 +66,7 @@ def title_from_markdown(text: str) -> str:
 def registry_from_raw(vault: Path) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for path in sorted((vault / "raw").glob("*")):
-        if path.is_dir() or path.name.startswith("."):
+        if path.is_dir() or path.name.startswith(".") or is_auxiliary_raw_source_path(path):
             continue
         parsed_text = parsed_text_for_raw(vault, path)
         arxiv, doi = ids_from_text(f"{path.name}\n{parsed_text}")
@@ -197,7 +198,10 @@ def main() -> int:
     registry = ensure_within(args.registry or vault / "_state" / "source-registry.jsonl", vault, "discovery outputs must stay inside the vault")
     report_path = ensure_within(args.report or vault / "_state" / "source-discovery-report.md", vault, "discovery outputs must stay inside the vault")
 
-    existing_rows = load_registry(registry)
+    existing_rows = [
+        row for row in load_registry(registry)
+        if not is_auxiliary_raw_source_path(row.get("raw_path") or row.get("path", ""))
+    ]
     existing_by_path = {}
     existing_by_source_id = {}
     for row in existing_rows:

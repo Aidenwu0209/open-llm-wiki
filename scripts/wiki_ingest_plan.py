@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from wiki_common import ensure_within, read_text, write_text
+from wiki_raw_support import is_auxiliary_raw_source_path
 from wiki_source_registry import (
     load_registry,
     raw_hash,
@@ -204,7 +205,10 @@ def classify_source(
 def build_plan(vault: Path) -> dict[str, Any]:
     vault = vault.resolve()
     registry_path = vault / "_state" / "source-registry.jsonl"
-    rows = load_registry(registry_path)
+    rows = [
+        row for row in load_registry(registry_path)
+        if not is_auxiliary_raw_source_path(row.get("raw_path") or row.get("path", ""))
+    ]
 
     # Build combined.md map from raw/*_markdown/combined.md
     combined_files: dict[str, Path] = {}
@@ -220,7 +224,7 @@ def build_plan(vault: Path) -> dict[str, Any]:
         raw_dir = vault / "raw"
         if raw_dir.exists():
             for path in sorted(raw_dir.iterdir()):
-                if path.is_dir() or path.name.startswith("."):
+                if path.is_dir() or path.name.startswith(".") or is_auxiliary_raw_source_path(path):
                     continue
                 raw_rel = path.relative_to(vault).as_posix()
                 h = ""
