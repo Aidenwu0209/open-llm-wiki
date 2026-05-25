@@ -58,6 +58,21 @@ OBSIDIAN_SORTSPEC_ENTRIES = [
 ]
 
 
+def check_path_hygiene(vault: Path, findings: list[Finding]) -> None:
+    whitespace_parts = [part for part in vault.resolve().parts if part and part != part.strip()]
+    if not whitespace_parts:
+        return
+    rendered = ", ".join(repr(part) for part in whitespace_parts)
+    findings.append(
+        Finding(
+            "P3",
+            ".",
+            f"vault path contains leading/trailing whitespace in component(s): {rendered}",
+            "migrate the vault/workspace to a path without leading or trailing spaces before cross-device sync or release validation",
+        )
+    )
+
+
 def parse_date(value: str) -> date | None:
     try:
         return datetime.strptime(value[:10], "%Y-%m-%d").date()
@@ -499,6 +514,7 @@ def check_graph(vault: Path, findings: list[Finding]) -> None:
 
 def lint(vault: Path, obsidian: bool = False, graph: bool = False) -> list[Finding]:
     findings: list[Finding] = []
+    check_path_hygiene(vault, findings)
     check_structure(vault, findings)
     check_pages(vault, findings)
     check_qa(vault, findings)
