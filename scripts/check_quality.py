@@ -1888,6 +1888,43 @@ def check_source_discovery_arxiv_filename() -> None:
             fail("source discovery did not extract arXiv ID from filename")
 
 
+def check_lint_warns_on_whitespace_path() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault "
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("whitespace path lint vault initialization failed")
+        lint_result = subprocess.run(
+            [sys.executable, "scripts/wiki_lint.py", str(vault), "--format", "json", "--fail-on", "none"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if lint_result.returncode != 0:
+            print(lint_result.stdout)
+            fail("whitespace path lint check failed")
+        payload = json.loads(lint_result.stdout)
+        findings = payload.get("findings", [])
+        matches = [
+            item
+            for item in findings
+            if item.get("priority") == "P3"
+            and item.get("path") == "."
+            and "leading/trailing whitespace" in item.get("message", "")
+        ]
+        if not matches:
+            print(lint_result.stdout)
+            fail("lint did not warn about a vault path with trailing whitespace")
+
+
 def check_source_uuid_stable_contract() -> None:
     import hashlib
 
@@ -3048,6 +3085,7 @@ def main() -> None:
     check_pdf_corpus_report_parser_warnings()
     check_pdf_corpus_report_nested_raw_layout()
     check_source_discovery_arxiv_filename()
+    check_lint_warns_on_whitespace_path()
     check_source_uuid_stable_contract()
     check_raw_support_index_skipped()
     check_source_discovery_nested_raw_layout()
