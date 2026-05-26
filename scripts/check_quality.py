@@ -1858,6 +1858,24 @@ def check_claim_ledger_stale_hook() -> None:
         run_cwd([sys.executable, "scripts/wiki_claims.py", str(vault)], ROOT)
 
         claims_path = vault / "claims" / "claims.jsonl"
+        registry_path = vault / "_state" / "source-registry.jsonl"
+        registry = [json.loads(l) for l in read(registry_path).splitlines() if l.strip()]
+        for row in registry:
+            if row.get("source_id") == "LLM-0001":
+                row["status"] = "stale"
+        write_jsonl(registry_path, registry)
+
+        claims = [json.loads(l) for l in read(claims_path).splitlines() if l.strip()]
+        claims[0]["verdict"] = "supported"
+        write_jsonl(claims_path, claims)
+        result = subprocess.run(
+            [sys.executable, "scripts/wiki_lint.py", str(vault), "--fail-on", "p1"],
+            cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        )
+        if result.returncode == 0 or "stale source" not in result.stdout:
+            print(result.stdout)
+            fail("claim ledger: lint should fail when a non-stale claim references a stale source")
+
         sys.path.insert(0, str(ROOT / "scripts"))
         from wiki_claims import mark_stale_claims
         marked = mark_stale_claims(claims_path, {"LLM-0001"})

@@ -684,7 +684,22 @@ def main() -> int:
 
         eq = str(claims_after[0].get("evidence_quote", ""))
         claims_after[0]["evidence_hash"] = hashlib.sha256(eq.encode("utf-8")).hexdigest()[:16]
+        claims_after[0]["verdict"] = "supported"
         write_jsonl(claims_path, claims_after)
+
+        registry_path = q_vault / "_state" / "source-registry.jsonl"
+        registry = load_jsonl(registry_path)
+        for row in registry:
+            if row.get("source_id") == "LLM-0001":
+                row["status"] = "stale"
+        write_jsonl(registry_path, registry)
+        lint_stale_result = subprocess.run(
+            [sys.executable, "scripts/wiki_lint.py", str(q_vault), "--fail-on", "p1"],
+            cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        )
+        if lint_stale_result.returncode == 0 or "stale source" not in lint_stale_result.stdout:
+            print(lint_stale_result.stdout)
+            raise SystemExit("claim ledger: lint should fail when a non-stale claim references a stale source")
 
         from wiki_claims import mark_stale_claims
         marked = mark_stale_claims(claims_path, {"LLM-0001"})
