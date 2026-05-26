@@ -416,6 +416,27 @@ def main() -> int:
         if "Accuracy: 92%" in concept_text or "Held for review in this concept: 1" not in concept_text:
             raise SystemExit("concept revision eval did not hold missing-protocol claim for review")
 
+        concept_log_symlink_vault = Path(tmp) / "concept-log-symlink-vault"
+        shutil.copytree(vault, concept_log_symlink_vault)
+        outside_concept_log = Path(tmp) / "outside-concept-log.md"
+        outside_concept_log.write_text("", encoding="utf-8")
+        if replace_with_symlink(concept_log_symlink_vault / "log.md", outside_concept_log):
+            concept_result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/wiki_concept_revision.py",
+                    str(concept_log_symlink_vault),
+                    "--apply",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if concept_result.returncode == 0 or outside_concept_log.read_text(encoding="utf-8"):
+                print(concept_result.stdout)
+                raise SystemExit("concept revision eval allowed log symlink escape")
+
         contradiction_vault = Path(tmp) / "contradiction-vault"
         (contradiction_vault / "claims").mkdir(parents=True)
         write_jsonl(
