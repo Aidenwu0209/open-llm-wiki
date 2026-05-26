@@ -178,6 +178,56 @@ def main() -> int:
         )
         run([sys.executable, "scripts/wiki_lint.py", str(graph_vault), "--graph", "--fail-on", "p1"])
 
+        graph_report_symlink_vault = Path(tmp) / "graph-report-symlink-vault"
+        shutil.copytree(vault, graph_report_symlink_vault)
+        graph_report_dir = graph_report_symlink_vault / ".graph"
+        graph_report_dir.mkdir(parents=True, exist_ok=True)
+        outside_graph_report = Path(tmp) / "outside-graph-report.md"
+        outside_graph_report.write_text("", encoding="utf-8")
+        (graph_report_dir / "graph-report.md").write_text("", encoding="utf-8")
+        if replace_with_symlink(graph_report_dir / "graph-report.md", outside_graph_report):
+            graph_result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/wiki_graph_export.py",
+                    str(graph_report_symlink_vault),
+                    "--format",
+                    "json",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if graph_result.returncode == 0 or outside_graph_report.read_text(encoding="utf-8"):
+                print(graph_result.stdout)
+                raise SystemExit("graph eval allowed graph-report symlink escape")
+
+        graph_schema_symlink_vault = Path(tmp) / "graph-schema-symlink-vault"
+        shutil.copytree(vault, graph_schema_symlink_vault)
+        graph_schema_dir = graph_schema_symlink_vault / ".graph"
+        graph_schema_dir.mkdir(parents=True, exist_ok=True)
+        outside_graph_schema = Path(tmp) / "outside-graph-schema.json"
+        outside_graph_schema.write_text("", encoding="utf-8")
+        (graph_schema_dir / "graph.schema.json").write_text("", encoding="utf-8")
+        if replace_with_symlink(graph_schema_dir / "graph.schema.json", outside_graph_schema):
+            graph_result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/wiki_graph_export.py",
+                    str(graph_schema_symlink_vault),
+                    "--format",
+                    "json",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if graph_result.returncode == 0 or outside_graph_schema.read_text(encoding="utf-8"):
+                print(graph_result.stdout)
+                raise SystemExit("graph eval allowed graph schema symlink escape")
+
     with tempfile.TemporaryDirectory() as tmp:
         check_individual_pipeline_stages(vault, tmp)
 
