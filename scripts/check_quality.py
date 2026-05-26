@@ -1646,6 +1646,67 @@ def check_corpus_ingest_fresh_vault() -> None:
             fail("fresh vault corpus ingest did not create sources/LLM-0001.md")
 
 
+def check_corpus_ingest_manifest_source_path() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("manifest source path vault initialization failed")
+        raw_pdf = vault / "raw" / "deepseek_paper" / "DeepSeek_Nested_2401.00001.pdf"
+        raw_pdf.parent.mkdir(parents=True)
+        raw_pdf.write_bytes(b"%PDF-1.4 fake nested source")
+        markdown_dir = vault / "raw" / "DeepSeek_Nested_2401.00001_markdown"
+        markdown_dir.mkdir(parents=True)
+        combined = markdown_dir / "combined.md"
+        combined.write_text(
+            "# DeepSeek Nested Source\n\n"
+            "Abstract\n"
+            "DeepSeek Nested Source reports 7B parameters and HumanEval 75% against a 60% baseline.\n\n"
+            "1 Introduction\n"
+            "The nested raw source path must remain citable from the generated source page.\n",
+            encoding="utf-8",
+        )
+        (markdown_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "source_path": str(raw_pdf),
+                    "input": str(raw_pdf),
+                    "combined": str(combined),
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        ingest_result = subprocess.run(
+            [sys.executable, "scripts/wiki_ingest_corpus.py", str(vault), "--today", "2026-05-03"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if ingest_result.returncode != 0:
+            print(ingest_result.stdout)
+            fail("manifest source path corpus ingest failed")
+        source_text = read(vault / "sources" / "LLM-0001.md")
+        expected = "paper: raw/deepseek_paper/DeepSeek_Nested_2401.00001.pdf"
+        stale_guess = "paper: raw/DeepSeek_Nested_2401.00001.pdf"
+        if expected not in source_text or stale_guess in source_text:
+            print(source_text)
+            fail("source page did not cite the manifest raw source path")
+        registry = read(vault / "_state" / "source-registry.jsonl")
+        if '"raw_path": "raw/deepseek_paper/DeepSeek_Nested_2401.00001.pdf"' not in registry:
+            print(registry)
+            fail("source registry did not preserve manifest raw source path")
+
+
 def check_corpus_ingest_generic_concepts() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -2119,6 +2180,7 @@ def main() -> None:
     check_pdf_corpus_report_nested_raw_layout()
     check_source_discovery_arxiv_filename()
     check_corpus_ingest_fresh_vault()
+    check_corpus_ingest_manifest_source_path()
     check_corpus_ingest_generic_concepts()
     check_corpus_ingest_metric_noise_filter()
     check_corpus_ingest_resume_continues()

@@ -266,8 +266,7 @@ def evidence_rows(lines: list[str], raw_rel: str) -> list[tuple[str, str, str]]:
 def build_item(vault: Path, source_id: str, combined: Path, today: str, concept_defs: dict[str, tuple[str, str]]) -> Item:
     raw_rel = combined.relative_to(vault).as_posix()
     stem = combined.parent.name.removesuffix("_markdown")
-    pdf = vault / "raw" / f"{stem}.pdf"
-    pdf_rel = pdf.relative_to(vault).as_posix() if pdf.exists() else f"raw/{stem}.pdf"
+    _raw_source, pdf_rel = original_source_for_artifact(vault, combined)
     text = read_text(combined)
     lines = text.splitlines()
     title = first_heading(lines, stem.replace("_", " "))
@@ -503,6 +502,33 @@ def original_source_for_artifact(vault: Path, combined: Path) -> tuple[Path, str
         if candidate.exists() and candidate.is_file():
             return candidate, candidate.relative_to(vault).as_posix()
     return combined, combined.relative_to(vault).as_posix()
+
+
+def original_source_from_manifest(vault: Path, combined: Path) -> tuple[Path, str] | None:
+    manifest_path = combined.parent / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        manifest = json.loads(read_text(manifest_path))
+    except json.JSONDecodeError:
+        return None
+    raw_root = (vault / "raw").resolve()
+    vault_root = vault.resolve()
+    for key in ("source_path", "input"):
+        value = manifest.get(key)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        candidate = Path(value)
+        if not candidate.is_absolute():
+            candidate = vault / candidate
+        resolved = candidate.resolve()
+        try:
+            resolved.relative_to(raw_root)
+        except ValueError:
+            continue
+        if resolved.is_file():
+            return resolved, resolved.relative_to(vault_root).as_posix()
+    return None
 
 
 def find_registry_row(rows: list[dict[str, object]], raw_rel: str, artifact_rel: str) -> dict[str, object] | None:
