@@ -42,6 +42,15 @@ def norm_title(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def is_generic_title_candidate(text: str) -> bool:
+    key = norm_title(text)
+    return (
+        not key
+        or bool(re.fullmatch(r"page \d+", key))
+        or key in {"abstract", "introduction", "references", "contents", "keywords"}
+    )
+
+
 def ids_from_text(text: str) -> tuple[str, str]:
     arxiv = ARXIV_RE.search(text)
     doi = DOI_RE.search(text)
@@ -72,12 +81,25 @@ def is_ignored_raw_path(raw_dir: Path, path: Path) -> bool:
 
 
 def title_from_markdown(text: str) -> str:
+    first_text_line = ""
     for line in text.splitlines()[:80]:
         stripped = line.strip()
+        if not stripped:
+            continue
         if stripped.startswith("#"):
             title = stripped.lstrip("#").strip()
-            if len(title) > 4:
+            if len(title) > 4 and not is_generic_title_candidate(title):
                 return title
+            continue
+        if (
+            not first_text_line
+            and len(stripped) > 4
+            and not is_generic_title_candidate(stripped)
+            and not stripped.startswith(("http://", "https://"))
+        ):
+            first_text_line = stripped
+    if first_text_line:
+        return first_text_line
     return ""
 
 
