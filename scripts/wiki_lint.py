@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -422,6 +423,73 @@ def load_optional_json(path: Path, vault: Path, findings: list[Finding], expecte
     return data
 
 
+def hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def parse_artifact_source_path(vault: Path, manifest_path: Path, manifest: dict[str, object]) -> Path | None:
+    raw_root = (vault / "raw").resolve()
+    for key in ("source_path", "input"):
+        value = manifest.get(key)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        candidate = Path(value)
+        if not candidate.is_absolute():
+            candidate = vault / candidate
+        resolved = candidate.resolve()
+        try:
+            resolved.relative_to(raw_root)
+        except ValueError:
+            continue
+        if resolved.is_file():
+            return resolved
+
+    markdown_dir = manifest_path.parent
+    if markdown_dir.name.endswith("_markdown"):
+        stem = markdown_dir.name.removesuffix("_markdown")
+        for suffix in (".pdf", ".md", ".txt"):
+            candidate = markdown_dir.parent / f"{stem}{suffix}"
+            if candidate.is_file():
+                resolved = candidate.resolve()
+                try:
+                    resolved.relative_to(raw_root)
+                except ValueError:
+                    continue
+                return resolved
+    return None
+
+
+def check_parse_artifacts(vault: Path, findings: list[Finding]) -> None:
+    raw_dir = vault / "raw"
+    if not raw_dir.exists():
+        return
+    for manifest_path in sorted(raw_dir.rglob("*_markdown/manifest.json")):
+        manifest = load_optional_json(manifest_path, vault, findings, dict)
+        if not isinstance(manifest, dict):
+            continue
+        expected_hash = manifest.get("source_sha256")
+        if not isinstance(expected_hash, str) or not expected_hash.strip():
+            continue
+        expected_hash = expected_hash.strip()
+        source_path = parse_artifact_source_path(vault, manifest_path, manifest)
+        if source_path is None:
+            continue
+        current_hash = hash_file(source_path)
+        if current_hash != expected_hash:
+            findings.append(
+                Finding(
+                    "P1",
+                    rel(manifest_path, vault),
+                    "parse artifact source hash mismatch; raw source changed after parsing",
+                    "re-parse the raw source before ingesting or synthesizing this artifact",
+                )
+            )
+
+
 def check_obsidian(vault: Path, findings: list[Finding]) -> None:
     obsidian_dir = vault / ".obsidian"
     if not obsidian_dir.exists():
@@ -550,6 +618,7 @@ def lint(vault: Path, obsidian: bool = False, graph: bool = False) -> list[Findi
     check_state_jsonl(vault, findings)
     check_source_registry(vault, findings)
     check_ingest_plan(vault, findings)
+    check_parse_artifacts(vault, findings)
     if obsidian:
         check_obsidian(vault, findings)
     if graph:
