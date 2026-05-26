@@ -126,8 +126,12 @@ def main() -> int:
     if warning:
         print(warning)
 
+    log_path = ensure_within(
+        vault / "log.md",
+        vault,
+        "writeback log output must stay inside the vault",
+    )
     write_text(target, after)
-    log_path = vault / "log.md"
     log_before = read_text(log_path) if log_path.exists() else "# Wiki Log\n"
     log_entry = f"[{timestamp}] query-writeback | {relative} | agent | query: {args.query!r}\n"
     write_text(log_path, log_before.rstrip() + "\n" + log_entry)
