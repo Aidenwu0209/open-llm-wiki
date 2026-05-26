@@ -66,15 +66,34 @@ def clean_line(line: str) -> str:
     return re.sub(r"\s+", " ", line).strip(" #*\t\r\n")
 
 
+def title_key(text: str) -> str:
+    text = re.sub(r"[_\-]+", " ", text.lower())
+    text = re.sub(r"[^a-z0-9 ]+", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def is_generic_title_candidate(text: str) -> bool:
+    key = title_key(text)
+    return (
+        not key
+        or bool(re.fullmatch(r"page \d+", key))
+        or key in {"abstract", "introduction", "references", "contents", "keywords"}
+    )
+
+
 def first_heading(lines: list[str], fallback: str) -> str:
     for line in lines[:80]:
         if line.strip().startswith("#"):
             title = clean_line(line)
-            if len(title) > 4 and not title.lower().startswith("abstract"):
+            if len(title) > 4 and not is_generic_title_candidate(title):
                 return title
     for line in lines[:80]:
         title = clean_line(line)
-        if len(title) > 12 and not title.lower().startswith(("abstract", "contents")):
+        if (
+            len(title) > 12
+            and not is_generic_title_candidate(title)
+            and not title.startswith(("http://", "https://"))
+        ):
             return title
     return fallback
 
