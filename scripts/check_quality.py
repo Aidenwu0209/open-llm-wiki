@@ -1254,6 +1254,33 @@ def check_safety_boundaries() -> None:
         outside_claims = Path(tmp) / "outside-claims.jsonl"
         outside_claims.write_text(read(vault / "claims" / "claims.jsonl"), encoding="utf-8")
         original_claims = read(outside_claims)
+        unsafe_normalized = vault / "claims" / "outside-normalized.jsonl"
+        unsafe_normalization_report = vault / "claims" / "outside-normalization-report.md"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/wiki_normalize_metrics.py",
+                str(vault),
+                "--claims",
+                str(outside_claims),
+                "--output",
+                str(unsafe_normalized),
+                "--report",
+                str(unsafe_normalization_report),
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode == 0:
+            fail("normalization accepted a claims path outside the vault")
+        if "normalization claims path must stay inside the vault" not in result.stdout:
+            print(result.stdout)
+            fail("normalization outside-claims boundary failure did not explain the vault constraint")
+        if unsafe_normalized.exists() or unsafe_normalization_report.exists():
+            fail("normalization wrote outputs from an outside claims path")
+
         result = subprocess.run(
             [
                 sys.executable,
@@ -1270,7 +1297,7 @@ def check_safety_boundaries() -> None:
         )
         if result.returncode == 0:
             fail("normalization accepted an in-place claims path outside the vault")
-        if "must stay inside the vault" not in result.stdout:
+        if "normalization claims path must stay inside the vault" not in result.stdout:
             print(result.stdout)
             fail("normalization in-place boundary failure did not explain the vault constraint")
         if read(outside_claims) != original_claims:
