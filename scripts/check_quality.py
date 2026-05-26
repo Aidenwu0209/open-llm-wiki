@@ -1980,6 +1980,58 @@ def check_raw_support_index_skipped() -> None:
             fail("plan-only ingest scan treated raw corpus index as evidence")
 
 
+def check_source_discovery_nested_raw_layout() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("nested source discovery test vault initialization failed")
+        nested = vault / "raw" / "deepseek_paper"
+        nested.mkdir(parents=True)
+        (nested / "DeepSeek_Test_2401.00001.pdf").write_bytes(b"%PDF-1.4 fake")
+        markdown_dir = nested / "DeepSeek_Test_2401.00001_markdown"
+        markdown_dir.mkdir()
+        (markdown_dir / "combined.md").write_text(
+            "# Nested DeepSeek Test\n\nNested source discovery should use this parsed title.\n",
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [sys.executable, "scripts/wiki_discover_sources.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode != 0:
+            print(result.stdout)
+            fail("nested source discovery test failed")
+        registry_rows = [
+            json.loads(line)
+            for line in (vault / "_state" / "source-registry.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        if len(registry_rows) != 1:
+            print(json.dumps(registry_rows, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("nested source discovery did not register exactly one raw evidence file")
+        row = registry_rows[0]
+        if row.get("raw_path") != "raw/deepseek_paper/DeepSeek_Test_2401.00001.pdf":
+            print(json.dumps(row, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("nested source discovery did not preserve nested raw path")
+        if row.get("arxiv") != "2401.00001":
+            print(json.dumps(row, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("nested source discovery did not extract arXiv ID from nested filename")
+        if row.get("title") != "Nested DeepSeek Test":
+            print(json.dumps(row, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("nested source discovery did not read sibling parsed markdown title")
+
+
 def check_corpus_ingest_fresh_vault() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -2580,6 +2632,7 @@ def main() -> None:
     check_pdf_corpus_report_nested_raw_layout()
     check_source_discovery_arxiv_filename()
     check_raw_support_index_skipped()
+    check_source_discovery_nested_raw_layout()
     check_corpus_ingest_fresh_vault()
     check_corpus_ingest_manifest_source_path()
     check_corpus_ingest_generic_concepts()
