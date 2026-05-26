@@ -261,9 +261,9 @@ Plan item schema:
 
 ```json
 {
-  "source_path": "raw/paper_markdown/combined.md",
+  "source_path": "raw/deepseek_paper/paper.pdf",
   "source_hash": "sha256-of-source-file",
-  "artifact_path": "raw/paper_markdown/combined.md",
+  "artifact_path": "raw/deepseek_paper/paper_markdown/combined.md",
   "artifact_hash": "sha256-of-artifact",
   "parser": "layout-api",
   "parser_version": "",

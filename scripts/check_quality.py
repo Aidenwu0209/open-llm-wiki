@@ -2135,6 +2135,67 @@ def check_source_discovery_nested_raw_layout() -> None:
             fail("nested source discovery did not read sibling parsed markdown title")
 
 
+def check_ingest_plan_nested_raw_layout() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("nested ingest plan test vault initialization failed")
+        nested = vault / "raw" / "deepseek_paper"
+        nested.mkdir(parents=True)
+        (nested / "DeepSeek_Note.md").write_text(
+            "# DeepSeek Note\n\nA local markdown source should be stageable.\n",
+            encoding="utf-8",
+        )
+        raw_pdf = nested / "DeepSeek_Test_2401.00001.pdf"
+        raw_pdf.write_bytes(b"%PDF-1.4 fake nested")
+        markdown_dir = nested / "DeepSeek_Test_2401.00001_markdown"
+        markdown_dir.mkdir()
+        (markdown_dir / "combined.md").write_text(
+            "# Nested DeepSeek Test\n\nParsed markdown should be ready for ingest.\n",
+            encoding="utf-8",
+        )
+        (nested / "索引.md").write_text("# Index\n\nSupport note, not evidence.\n", encoding="utf-8")
+        (nested / "_translation_cache.json").write_text('{"support": true}\n', encoding="utf-8")
+
+        plan_result = subprocess.run(
+            [sys.executable, "scripts/wiki_ingest_plan.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if plan_result.returncode != 0:
+            print(plan_result.stdout)
+            fail("nested ingest plan failed")
+        plan = json.loads(plan_result.stdout)
+        items = {item.get("source_path"): item for item in plan.get("items", [])}
+        expected_paths = {
+            "raw/deepseek_paper/DeepSeek_Note.md",
+            "raw/deepseek_paper/DeepSeek_Test_2401.00001.pdf",
+        }
+        if set(items) != expected_paths or plan.get("total_sources") != 2:
+            print(json.dumps(plan, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("nested ingest plan did not report exactly the nested evidence files")
+        if items["raw/deepseek_paper/DeepSeek_Note.md"].get("state") != "stageable":
+            print(json.dumps(items["raw/deepseek_paper/DeepSeek_Note.md"], indent=2, ensure_ascii=False, sort_keys=True))
+            fail("nested markdown source was not stageable")
+        pdf_item = items["raw/deepseek_paper/DeepSeek_Test_2401.00001.pdf"]
+        if pdf_item.get("state") != "ready":
+            print(json.dumps(pdf_item, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("nested parsed PDF source was not ready")
+        if pdf_item.get("artifact_path") != "raw/deepseek_paper/DeepSeek_Test_2401.00001_markdown/combined.md":
+            print(json.dumps(pdf_item, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("nested ingest plan did not link sibling combined.md artifact")
+
+
 def check_corpus_ingest_fresh_vault() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -2852,6 +2913,7 @@ def main() -> None:
     check_source_uuid_stable_contract()
     check_raw_support_index_skipped()
     check_source_discovery_nested_raw_layout()
+    check_ingest_plan_nested_raw_layout()
     check_corpus_ingest_fresh_vault()
     check_corpus_ingest_manifest_source_path()
     check_corpus_ingest_generic_concepts()
