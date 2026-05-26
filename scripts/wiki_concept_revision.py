@@ -172,7 +172,11 @@ def main() -> int:
                 write_text(path, after)
 
     if args.apply and changed:
-        log_path = vault / "log.md"
+        log_path = ensure_within(
+            vault / "log.md",
+            vault,
+            "concept revision log output must stay inside the vault",
+        )
         log = read_text(log_path) if log_path.exists() else "# Wiki Log\n"
         stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
         entries = "\n".join(
