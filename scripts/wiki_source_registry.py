@@ -6,7 +6,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -58,6 +57,10 @@ def raw_hash(raw_path: Path) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def source_uuid_from_id(source_id: str) -> str:
+    return hashlib.sha256(source_id.encode("utf-8")).hexdigest()[:32]
 
 
 def read_id_counter(state_dir: Path) -> int:
@@ -131,16 +134,27 @@ def register_raw(
 
     existing = find_by_raw_hash(rows, h)
     if existing is not None:
+        if not existing.get("source_id"):
+            existing["source_id"] = allocate_source_id(state_dir)
+        if not existing.get("source_uuid"):
+            source_id = str(existing["source_id"])
+            existing["source_uuid"] = source_uuid_from_id(source_id)
+        save_registry(registry_path, rows)
         return existing
 
     existing_by_path = find_by_raw_path(rows, raw_path)
     if existing_by_path is not None:
         existing_by_path["raw_hash"] = h
+        if not existing_by_path.get("source_id"):
+            existing_by_path["source_id"] = allocate_source_id(state_dir)
+        if not existing_by_path.get("source_uuid"):
+            source_id = str(existing_by_path["source_id"])
+            existing_by_path["source_uuid"] = source_uuid_from_id(source_id)
         save_registry(registry_path, rows)
         return existing_by_path
 
-    source_uuid = str(uuid.uuid4())
     source_id = allocate_source_id(state_dir)
+    source_uuid = source_uuid_from_id(source_id)
     now = datetime.now().strftime("%Y-%m-%d")
 
     row: dict[str, Any] = {
@@ -239,7 +253,14 @@ def validate_registry(rows: list[dict[str, Any]]) -> list[tuple[str, str]]:
 
         source_uuid = row.get("source_uuid", "")
         if source_uuid:
+            if source_id and source_uuid != source_uuid_from_id(source_id):
+                issues.append((
+                    prefix,
+                    f"source_uuid {source_uuid!r} does not match stable id for source_id {source_id!r}",
+                ))
             source_uuids[source_uuid] = source_uuids.get(source_uuid, 0) + 1
+        elif source_id:
+            issues.append((prefix, f"missing source_uuid for source_id {source_id!r}"))
 
         dup_of = row.get("duplicate_of", "")
         if dup_of:

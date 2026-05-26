@@ -267,7 +267,7 @@ Plan item schema:
   "artifact_hash": "sha256-of-artifact",
   "parser": "layout-api",
   "parser_version": "",
-  "source_uuid": "unique-id",
+  "source_uuid": "aa1e0f80381694c11724347e8329b917",
   "source_id": "LLM-0001",
   "state": "published",
   "reason": "source already published and unchanged",

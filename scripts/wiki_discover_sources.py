@@ -14,7 +14,13 @@ from pathlib import Path
 
 from wiki_common import ensure_within, json_dump, parse_frontmatter, read_text, write_text
 from wiki_raw_support import is_auxiliary_raw_source_path
-from wiki_source_registry import load_registry, save_registry, raw_hash as compute_raw_hash
+from wiki_source_registry import (
+    allocate_source_id,
+    load_registry,
+    raw_hash as compute_raw_hash,
+    save_registry,
+    source_uuid_from_id,
+)
 
 
 ARXIV_RE = re.compile(r"(?<!\d)(\d{4}\.\d{4,5})(?:v\d+)?(?!\d)")
@@ -176,6 +182,15 @@ def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     write_text(path, "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows))
 
 
+def ensure_discovery_identity(row: dict[str, object], state_dir: Path) -> None:
+    if not row.get("source_id") and row.get("status") != "discovered":
+        source_id = allocate_source_id(state_dir)
+        row["source_id"] = source_id
+        row["source_uuid"] = source_uuid_from_id(source_id)
+    elif row.get("source_id") and not row.get("source_uuid"):
+        row["source_uuid"] = source_uuid_from_id(str(row["source_id"]))
+
+
 def report(rows: list[dict[str, object]], duplicates: list[dict[str, object]]) -> str:
     by_kind: dict[str, int] = {}
     for row in rows:
@@ -210,6 +225,7 @@ def main() -> int:
     vault = args.vault.resolve()
     registry = ensure_within(args.registry or vault / "_state" / "source-registry.jsonl", vault, "discovery outputs must stay inside the vault")
     report_path = ensure_within(args.report or vault / "_state" / "source-discovery-report.md", vault, "discovery outputs must stay inside the vault")
+    state_dir = ensure_within(vault / "_state", vault, "state directory must stay inside the vault")
 
     existing_rows = [
         row for row in load_registry(registry)
@@ -231,7 +247,7 @@ def main() -> int:
 
     merged = list(existing_rows)
     merged_paths = {row.get("raw_path") or row.get("path", "") for row in merged}
-    merged_source_ids = {row.get("source_id", "") for row in merged}
+    merged_source_ids = {row.get("source_id", "") for row in merged if row.get("source_id")}
     for fresh in fresh_rows:
         fp = fresh.get("path", "")
         fresh_sid = fresh.get("source_id", "")
@@ -243,6 +259,7 @@ def main() -> int:
             for key in ("sha256", "raw_hash"):
                 if key in fresh and (existing.get("status") not in {"published", "stale"} or not existing.get(key)):
                     existing[key] = fresh[key]
+            ensure_discovery_identity(existing, state_dir)
         elif fresh_sid and fresh_sid in existing_by_source_id:
             existing = existing_by_source_id[fresh_sid]
             for key in ("title", "title_key", "arxiv", "doi", "status"):
@@ -251,9 +268,10 @@ def main() -> int:
             for key in ("sha256", "raw_hash"):
                 if fresh.get(key) and (existing.get("status") not in {"published", "stale"} or not existing.get(key)):
                     existing[key] = fresh[key]
+            ensure_discovery_identity(existing, state_dir)
         elif fp not in merged_paths and fresh_sid not in merged_source_ids:
-            import uuid as _uuid
-            fresh.setdefault("source_uuid", _uuid.uuid4().hex)
+            ensure_discovery_identity(fresh, state_dir)
+            fresh_sid = fresh.get("source_id", "")
             if "raw_path" not in fresh:
                 fresh["raw_path"] = fp
             merged.append(fresh)

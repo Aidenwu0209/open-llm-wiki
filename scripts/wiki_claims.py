@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from wiki_common import WIKILINK_RE, ensure_within, json_dump, parse_frontmatter, read_text, rel, write_text
-from wiki_source_registry import load_registry
+from wiki_source_registry import load_registry, source_uuid_from_id
 
 
 NUMBER_RE = re.compile(r"([-+]?\d+(?:,\d{3})*(?:\.\d+)?)\s*([A-Za-z%]+)?")
@@ -33,10 +33,6 @@ VALID_VERDICTS = frozenset({
 })
 
 MAX_EVIDENCE_QUOTE_LENGTH = 300
-
-
-def source_uuid_from_id(source_id: str) -> str:
-    return hashlib.sha256(source_id.encode("utf-8")).hexdigest()[:32]
 
 
 def extract_evidence_quote(body: str, heading: str, max_len: int = MAX_EVIDENCE_QUOTE_LENGTH) -> str:
