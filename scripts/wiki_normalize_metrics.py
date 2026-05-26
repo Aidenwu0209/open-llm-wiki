@@ -172,7 +172,11 @@ def main() -> int:
     args = parser.parse_args()
 
     vault = args.vault.resolve()
-    claims_path = (args.claims or vault / "claims" / "claims.jsonl").resolve()
+    claims_path = ensure_within(
+        args.claims or vault / "claims" / "claims.jsonl",
+        vault,
+        "normalization claims path must stay inside the vault",
+    )
     output = ensure_within(
         args.output or vault / "claims" / "normalized-claims.jsonl",
         vault / "claims",
@@ -183,8 +187,6 @@ def main() -> int:
         vault / "claims",
         "normalization report must stay under claims/",
     )
-    if args.in_place:
-        claims_path = ensure_within(claims_path, vault, "normalization in-place claims path must stay inside the vault")
     rows = [normalize_claim(dict(row)) for row in load_claims(claims_path)]
     write_jsonl(output, rows)
     if args.in_place:
