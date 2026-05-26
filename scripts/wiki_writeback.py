@@ -76,6 +76,10 @@ def semantic_qa_warning(status: SemanticQaStatus, vault: Path) -> str:
     )
 
 
+def normalize_approval_note(note: str | None) -> str:
+    return re.sub(r"\s+", " ", note or "").strip()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Propose or apply a query writeback.")
     parser.add_argument("vault", type=Path)
@@ -84,6 +88,10 @@ def main() -> int:
     parser.add_argument("--body", help="Markdown body to append.")
     parser.add_argument("--body-file", type=Path, help="File containing markdown body to append.")
     parser.add_argument("--apply", action="store_true", help="Apply the writeback. Default prints a diff only.")
+    parser.add_argument(
+        "--approval-note",
+        help="Required with --apply. Short note identifying the explicit user approval or pre-authorization.",
+    )
     parser.add_argument(
         "--allow-failing-qa",
         action="store_true",
@@ -111,6 +119,7 @@ def main() -> int:
     diff = make_diff(Path(relative), before, after)
     semantic_status = latest_semantic_qa_status(vault)
     warning = semantic_qa_warning(semantic_status, vault) if semantic_status.blocks_writeback else ""
+    approval_note = normalize_approval_note(args.approval_note)
 
     if not args.apply:
         if warning:
@@ -121,6 +130,8 @@ def main() -> int:
         print(f"[{timestamp}] query-writeback | {relative} | agent | query: {args.query!r}")
         return 0
 
+    if not approval_note:
+        raise SystemExit("writeback not applied: --apply requires --approval-note with explicit user approval or pre-authorization")
     if warning and not args.allow_failing_qa:
         raise SystemExit(f"{warning}\nwriteback not applied")
     if warning:
@@ -129,7 +140,10 @@ def main() -> int:
     write_text(target, after)
     log_path = vault / "log.md"
     log_before = read_text(log_path) if log_path.exists() else "# Wiki Log\n"
-    log_entry = f"[{timestamp}] query-writeback | {relative} | agent | query: {args.query!r}\n"
+    log_entry = (
+        f"[{timestamp}] query-writeback | {relative} | agent | "
+        f"query: {args.query!r} | approval: {approval_note!r}\n"
+    )
     write_text(log_path, log_before.rstrip() + "\n" + log_entry)
     print(f"applied writeback to {relative}")
     return 0

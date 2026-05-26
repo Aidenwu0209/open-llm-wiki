@@ -217,7 +217,8 @@ proposal-first writeback flow.
 - `raw/` is treated as immutable evidence.
 - Source pages publish only after independent QA passes.
 - Query writeback is read-only by default and requires approval unless the user
-  has explicitly pre-authorized automatic wiki growth.
+  has explicitly pre-authorized automatic wiki growth. Applying a writeback
+  requires an `--approval-note` so the approval appears in `log.md`.
 - Lint is report-only by default.
 - Cloud OCR is optional and requires explicit configuration and user acceptance
   because document content may leave the local machine.

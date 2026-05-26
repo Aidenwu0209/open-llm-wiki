@@ -408,7 +408,7 @@ Preferred writeback flow:
 1. answer with citations
 2. generate a proposed diff
 3. get approval or use explicit pre-authorization
-4. apply the diff
+4. apply the diff with `--approval-note` so the approval is auditable
 5. run lint
 6. append `log.md`
 
@@ -522,4 +522,5 @@ python .open-llm-wiki/scripts/wiki_graph_export.py . --format obsidian-canvas --
 python .open-llm-wiki/scripts/wiki_status.py .
 python .open-llm-wiki/scripts/wiki_status.py . --write-dashboard --force
 python .open-llm-wiki/scripts/wiki_writeback.py . --target concepts/page.md --query "..." --body "..."
+python .open-llm-wiki/scripts/wiki_writeback.py . --target concepts/page.md --query "..." --body "..." --apply --approval-note "User approved this diff"
 ```
