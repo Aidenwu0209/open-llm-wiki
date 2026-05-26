@@ -109,6 +109,10 @@ uv sync --dev --locked
 - [ ] Corpus report detects missing Markdown outputs.
 - [ ] Corpus report detects suspiciously short parsed outputs.
 - [ ] Corpus report detects parser warning patterns.
+- [ ] `scripts/wiki_extract_archive.py --help` documents safe ZIP extraction
+      from `raw/` into a raw subdirectory.
+- [ ] ZIP corpus extraction writes an `_state/archive-extract-manifest.jsonl`
+      audit row and refuses path traversal, symlinks, and overwrites.
 
 ## 5. Corpus Ingest
 

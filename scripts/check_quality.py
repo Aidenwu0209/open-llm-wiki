@@ -7,11 +7,13 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import zipfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -129,6 +131,7 @@ def check_docs() -> None:
         "scripts/wiki_search.py",
         "scripts/wiki_source_registry.py",
         "scripts/wiki_ingest_plan.py",
+        "scripts/wiki_extract_archive.py",
         "scripts/wiki_status.py",
         "scripts/wiki_writeback.py",
         "scripts/wiki_eval.py",
@@ -887,6 +890,7 @@ def run_runtime_checks() -> None:
         [sys.executable, "scripts/wiki_graph_export.py", "--help"],
         [sys.executable, "scripts/wiki_grow.py", "--help"],
         [sys.executable, "scripts/wiki_ingest_corpus.py", "--help"],
+        [sys.executable, "scripts/wiki_extract_archive.py", "--help"],
         [sys.executable, "scripts/wiki_normalize_metrics.py", "--help"],
         [sys.executable, "scripts/wiki_queue.py", "--help"],
         [sys.executable, "scripts/wiki_science_review.py", "--help"],
@@ -1055,6 +1059,106 @@ def expect_command_failure(command: list[str], expected: str, message: str, cwd:
         print(result.stdout)
         fail(f"{message}; missing expected text {expected!r}")
     return result.stdout
+
+
+def check_archive_extraction_safety() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        vault = root / "vault"
+        inbox = vault / "raw" / "inbox"
+        inbox.mkdir(parents=True)
+        (vault / "_state").mkdir(parents=True)
+
+        archive = inbox / "corpus.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("paper.md", "# Paper\n\nLocal corpus note.\n")
+            zf.writestr("__MACOSX/._paper.md", "mac metadata")
+            zf.writestr(".DS_Store", "mac metadata")
+
+        dry_run = subprocess.run(
+            [sys.executable, "scripts/wiki_extract_archive.py", str(vault), "raw/inbox/corpus.zip", "--dry-run"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if dry_run.returncode != 0:
+            print(dry_run.stdout)
+            fail("wiki_extract_archive.py dry-run failed")
+        if "DRY RUN: would extract 1 file(s)" not in dry_run.stdout:
+            print(dry_run.stdout)
+            fail("archive extraction dry-run did not report the planned file count")
+        if (vault / "raw" / "corpus").exists():
+            fail("archive extraction dry-run wrote an output directory")
+
+        extracted = subprocess.run(
+            [sys.executable, "scripts/wiki_extract_archive.py", str(vault), "raw/inbox/corpus.zip"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if extracted.returncode != 0:
+            print(extracted.stdout)
+            fail("wiki_extract_archive.py failed on a safe archive")
+        if not (vault / "raw" / "corpus" / "paper.md").exists():
+            print(extracted.stdout)
+            fail("archive extraction did not write the expected raw corpus file")
+        manifest = vault / "_state" / "archive-extract-manifest.jsonl"
+        if not manifest.exists():
+            print(extracted.stdout)
+            fail("archive extraction did not write a manifest")
+        row = json.loads(manifest.read_text(encoding="utf-8").splitlines()[0])
+        if row.get("archive_path") != "raw/inbox/corpus.zip" or row.get("output_dir") != "raw/corpus":
+            print(json.dumps(row, indent=2, sort_keys=True))
+            fail("archive extraction manifest did not record the archive and output paths")
+        if row.get("file_count") != 1 or not row.get("files"):
+            print(json.dumps(row, indent=2, sort_keys=True))
+            fail("archive extraction manifest did not record extracted files")
+        if "__MACOSX/._paper.md" not in row.get("skipped_entries", []):
+            print(json.dumps(row, indent=2, sort_keys=True))
+            fail("archive extraction manifest did not record skipped packaging entries")
+
+        expect_command_failure(
+            [sys.executable, "scripts/wiki_extract_archive.py", str(vault), "raw/inbox/corpus.zip"],
+            "would overwrite an existing file",
+            "archive extraction overwrote an existing raw file",
+        )
+        expect_command_failure(
+            [
+                sys.executable,
+                "scripts/wiki_extract_archive.py",
+                str(vault),
+                "raw/inbox/corpus.zip",
+                "--output-dir",
+                str(root / "outside"),
+            ],
+            "archive output directory must stay under vault/raw",
+            "archive extraction accepted an output directory outside raw/",
+        )
+
+        unsafe = inbox / "unsafe.zip"
+        with zipfile.ZipFile(unsafe, "w") as zf:
+            zf.writestr("../outside.md", "bad")
+        expect_command_failure(
+            [sys.executable, "scripts/wiki_extract_archive.py", str(vault), "raw/inbox/unsafe.zip"],
+            "archive member path is unsafe",
+            "archive extraction accepted a traversal member",
+        )
+        if (root / "outside.md").exists():
+            fail("archive traversal member wrote outside the vault")
+
+        symlink_archive = inbox / "symlink.zip"
+        with zipfile.ZipFile(symlink_archive, "w") as zf:
+            info = zipfile.ZipInfo("link.md")
+            info.create_system = 3
+            info.external_attr = (stat.S_IFLNK | 0o777) << 16
+            zf.writestr(info, "paper.md")
+        expect_command_failure(
+            [sys.executable, "scripts/wiki_extract_archive.py", str(vault), "raw/inbox/symlink.zip"],
+            "archive member is a symlink",
+            "archive extraction accepted a symlink member",
+        )
 
 
 def check_pdf_corpus_to_markdown_progress_log() -> None:
@@ -2378,6 +2482,7 @@ def main() -> None:
     check_pdf_corpus_to_markdown_progress_log()
     check_writeback_semantic_qa_gate()
     check_safety_boundaries()
+    check_archive_extraction_safety()
     check_pdf_corpus_report_short_outputs()
     check_pdf_corpus_report_parser_warnings()
     check_pdf_corpus_report_nested_raw_layout()
