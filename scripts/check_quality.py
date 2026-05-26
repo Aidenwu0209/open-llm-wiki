@@ -1888,6 +1888,98 @@ def check_source_discovery_arxiv_filename() -> None:
             fail("source discovery did not extract arXiv ID from filename")
 
 
+def check_raw_support_index_skipped() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("raw support index test vault initialization failed")
+        (vault / "raw" / "DeepSeek-LLM_2401.02954.md").write_text(
+            "# DeepSeek LLM\n\nDeepSeek LLM is a paper source.\n",
+            encoding="utf-8",
+        )
+        (vault / "raw" / "索引.md").write_text(
+            "# deepseek_paper 中文转换索引\n\n- DeepSeek-Coder-V2 2406.11931\n",
+            encoding="utf-8",
+        )
+        discover = subprocess.run(
+            [sys.executable, "scripts/wiki_discover_sources.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if discover.returncode != 0:
+            print(discover.stdout)
+            fail("raw support index source discovery failed")
+        registry_rows = [
+            json.loads(line)
+            for line in (vault / "_state" / "source-registry.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        paths = {row.get("raw_path") or row.get("path") for row in registry_rows}
+        if paths != {"raw/DeepSeek-LLM_2401.02954.md"}:
+            print(registry_rows)
+            fail("source discovery treated raw corpus index as evidence")
+        plan = subprocess.run(
+            [sys.executable, "scripts/wiki_ingest_plan.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if plan.returncode != 0:
+            print(plan.stdout)
+            fail("raw support index ingest plan failed")
+        plan_data = json.loads(plan.stdout)
+        plan_paths = {item.get("source_path") for item in plan_data.get("items", [])}
+        if plan_paths != {"raw/DeepSeek-LLM_2401.02954.md"} or plan_data.get("total_sources") != 1:
+            print(plan.stdout)
+            fail("ingest plan treated raw corpus index as evidence")
+
+        plan_only_vault = Path(tmp) / "plan-only-vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(plan_only_vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("raw support index plan-only vault initialization failed")
+        (plan_only_vault / "raw" / "DeepSeek-LLM_2401.02954.md").write_text(
+            "# DeepSeek LLM\n\nDeepSeek LLM is a paper source.\n",
+            encoding="utf-8",
+        )
+        (plan_only_vault / "raw" / "index.md").write_text(
+            "# Corpus index\n\n- DeepSeek-Coder-V2 2406.11931\n",
+            encoding="utf-8",
+        )
+        plan_only = subprocess.run(
+            [sys.executable, "scripts/wiki_ingest_plan.py", str(plan_only_vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if plan_only.returncode != 0:
+            print(plan_only.stdout)
+            fail("raw support index plan-only ingest plan failed")
+        plan_only_data = json.loads(plan_only.stdout)
+        plan_only_paths = {item.get("source_path") for item in plan_only_data.get("items", [])}
+        if plan_only_paths != {"raw/DeepSeek-LLM_2401.02954.md"} or plan_only_data.get("total_sources") != 1:
+            print(plan_only.stdout)
+            fail("plan-only ingest scan treated raw corpus index as evidence")
+
+
 def check_corpus_ingest_fresh_vault() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -2487,6 +2579,7 @@ def main() -> None:
     check_pdf_corpus_report_parser_warnings()
     check_pdf_corpus_report_nested_raw_layout()
     check_source_discovery_arxiv_filename()
+    check_raw_support_index_skipped()
     check_corpus_ingest_fresh_vault()
     check_corpus_ingest_manifest_source_path()
     check_corpus_ingest_generic_concepts()
