@@ -2331,6 +2331,66 @@ def check_corpus_ingest_fresh_vault() -> None:
             fail("fresh vault corpus ingest did not create sources/LLM-0001.md")
 
 
+def check_corpus_ingest_skips_local_page_headings() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("local page heading ingest test vault initialization failed")
+        nested = vault / "raw" / "deepseek_paper"
+        nested.mkdir(parents=True)
+        fixtures = {
+            "DeepSeek-Coder-V2_2406.11931": "DeepSeek-Coder-V2: Breaking the Barrier of Closed-Source",
+            "Engram_2601.07372": "Conditional Memory via Scalable Lookup:",
+        }
+        for stem, title in fixtures.items():
+            (nested / f"{stem}.pdf").write_bytes(f"%PDF-1.4 fake {stem}\n".encode("utf-8"))
+            markdown_dir = nested / f"{stem}_markdown"
+            markdown_dir.mkdir()
+            (markdown_dir / "combined.md").write_text(
+                f"# Page 1\n\n{title}\nDeepSeek-AI\nAbstract\n"
+                "This local parser output reports 7B parameters and HumanEval 75% against a 60% baseline. "
+                "The generated source title must not use the parser page heading.\n\n"
+                "1 Introduction\n"
+                "The model uses benchmarks, tokens, and parameters for source page generation.\n",
+                encoding="utf-8",
+            )
+        ingest_result = subprocess.run(
+            [sys.executable, "scripts/wiki_ingest_corpus.py", str(vault), "--today", "2026-05-03"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if ingest_result.returncode != 0:
+            print(ingest_result.stdout)
+            fail("local page heading corpus ingest failed")
+        source_titles = [
+            str(parse_frontmatter(path).get("title", "")).strip('"')
+            for path in sorted((vault / "sources").glob("LLM-*.md"))
+        ]
+        if source_titles != list(fixtures.values()):
+            print(source_titles)
+            fail("corpus ingest used local parser page headings as source titles")
+        discover_result = subprocess.run(
+            [sys.executable, "scripts/wiki_discover_sources.py", str(vault), "--fail-on-duplicates", "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if discover_result.returncode != 0:
+            print(discover_result.stdout)
+            fail("post-ingest source discovery treated local page heading titles as duplicates")
+
+
 def check_corpus_ingest_manifest_source_path() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -3150,6 +3210,7 @@ def main() -> None:
     check_source_discovery_skips_local_page_headings()
     check_ingest_plan_nested_raw_layout()
     check_corpus_ingest_fresh_vault()
+    check_corpus_ingest_skips_local_page_headings()
     check_corpus_ingest_manifest_source_path()
     check_corpus_ingest_generic_concepts()
     check_corpus_ingest_metric_noise_filter()
