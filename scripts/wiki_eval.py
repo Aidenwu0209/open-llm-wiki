@@ -123,6 +123,38 @@ def main() -> int:
         raise SystemExit("writeback eval did not produce a reviewable proposal")
 
     with tempfile.TemporaryDirectory() as tmp:
+        writeback_log_symlink_vault = Path(tmp) / "writeback-log-symlink-vault"
+        shutil.copytree(vault, writeback_log_symlink_vault)
+        target_path = writeback_log_symlink_vault / "concepts" / "attention-mechanisms.md"
+        before_target = target_path.read_text(encoding="utf-8")
+        outside_writeback_log = Path(tmp) / "outside-writeback-log.md"
+        outside_writeback_log.write_text("", encoding="utf-8")
+        if replace_with_symlink(writeback_log_symlink_vault / "log.md", outside_writeback_log):
+            writeback_result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/wiki_writeback.py",
+                    str(writeback_log_symlink_vault),
+                    "--target",
+                    "concepts/attention-mechanisms.md",
+                    "--query",
+                    "symlink writeback log",
+                    "--body",
+                    "Evidence-backed note. [[LLM-0001]]",
+                    "--apply",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if writeback_result.returncode == 0 or outside_writeback_log.read_text(encoding="utf-8"):
+                print(writeback_result.stdout)
+                raise SystemExit("writeback eval allowed log symlink escape")
+            if target_path.read_text(encoding="utf-8") != before_target:
+                raise SystemExit("writeback eval modified target before rejecting log symlink")
+
+    with tempfile.TemporaryDirectory() as tmp:
         graph_vault = Path(tmp) / "graph-vault"
         shutil.copytree(vault, graph_vault)
         run([sys.executable, "scripts/wiki_graph_export.py", str(graph_vault), "--format", "json"])
