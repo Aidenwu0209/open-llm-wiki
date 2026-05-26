@@ -1186,11 +1186,16 @@ def check_writeback_semantic_qa_gate() -> None:
             fail("writeback proposal did not warn about failing semantic QA")
         expect_command_failure(
             command + ["--apply"],
+            "--apply requires --approval-note",
+            "writeback applied without an explicit approval note",
+        )
+        expect_command_failure(
+            command + ["--apply", "--approval-note", "user approved during QA test"],
             "writeback not applied",
             "writeback applied despite failing semantic QA",
         )
         allowed = subprocess.run(
-            command + ["--apply", "--allow-failing-qa"],
+            command + ["--apply", "--approval-note", "user approved failing QA override during QA test", "--allow-failing-qa"],
             cwd=ROOT,
             text=True,
             stdout=subprocess.PIPE,
@@ -1202,6 +1207,10 @@ def check_writeback_semantic_qa_gate() -> None:
         if "applied writeback" not in allowed.stdout:
             print(allowed.stdout)
             fail("writeback explicit failing-QA override did not apply the writeback")
+        log_text = (writeback_vault / "log.md").read_text(encoding="utf-8")
+        if "approval: 'user approved failing QA override during QA test'" not in log_text:
+            print(log_text)
+            fail("writeback apply did not log the approval note")
 
         unsupported = subprocess.run(
             [

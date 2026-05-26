@@ -267,6 +267,15 @@ python my-llm-wiki/.open-llm-wiki/scripts/wiki_writeback.py my-llm-wiki \
 
 Review the diff before applying. Add `--apply` only after approval.
 
+```bash
+python my-llm-wiki/.open-llm-wiki/scripts/wiki_writeback.py my-llm-wiki \
+  --target concepts/attention-mechanisms.md \
+  --query "Why did attention become central?" \
+  --body "Attention created direct token-to-token interaction paths. [[LLM-0001]]" \
+  --apply \
+  --approval-note "User approved this diff after review"
+```
+
 ## Validate the Repository
 
 From the repo root:
