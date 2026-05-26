@@ -1259,6 +1259,27 @@ def check_safety_boundaries() -> None:
             "semantic QA report must stay inside the vault",
             "semantic QA accepted a report path outside the vault",
         )
+        outside_semantic_claims = Path(tmp) / "semantic-outside-claims.jsonl"
+        outside_semantic_claims.write_text(read(vault / "claims" / "claims.jsonl"), encoding="utf-8")
+        unsafe_semantic_report = semantic_vault / "qa-reports" / "outside-claims-report.md"
+        expect_command_failure(
+            [
+                sys.executable,
+                "scripts/wiki_semantic_qa.py",
+                str(semantic_vault),
+                "--claims",
+                str(outside_semantic_claims),
+                "--write-report",
+                "--report",
+                str(unsafe_semantic_report),
+                "--fail-on",
+                "none",
+            ],
+            "semantic QA claims path must stay inside the vault",
+            "semantic QA accepted a claims path outside the vault",
+        )
+        if unsafe_semantic_report.exists():
+            fail("semantic QA wrote a report from an outside claims path")
 
         science_vault = Path(tmp) / "science-vault"
         shutil.copytree(vault, science_vault)

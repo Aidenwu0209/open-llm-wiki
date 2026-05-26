@@ -275,7 +275,11 @@ def main() -> int:
     args = parser.parse_args()
 
     vault = args.vault.resolve()
-    claims_path = (args.claims or vault / "claims" / "claims.jsonl").resolve()
+    claims_path = ensure_within(
+        args.claims or vault / "claims" / "claims.jsonl",
+        vault,
+        "semantic QA claims path must stay inside the vault",
+    )
     claims = load_claims(claims_path)
 
     if args.assign_verdicts:
