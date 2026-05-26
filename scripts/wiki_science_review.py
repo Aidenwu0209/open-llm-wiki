@@ -100,7 +100,11 @@ def main() -> int:
     args = parser.parse_args()
 
     vault = args.vault.resolve()
-    claims_path = (args.claims or vault / "claims" / "claims.jsonl").resolve()
+    claims_path = ensure_within(
+        args.claims or vault / "claims" / "claims.jsonl",
+        vault,
+        "science review claims path must stay inside the vault",
+    )
     items = review_items(load_claims(claims_path), args.limit)
     if args.queue:
         state_dir = ensure_within(vault / "_state", vault, "_state must stay inside the vault")

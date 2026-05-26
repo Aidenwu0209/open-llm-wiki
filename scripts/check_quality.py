@@ -1505,6 +1505,24 @@ def check_safety_boundaries() -> None:
             "science review report must stay inside the vault",
             "science review accepted a report path outside the vault",
         )
+        outside_science_claims = Path(tmp) / "outside-science-claims.jsonl"
+        outside_science_claims.write_text(read(vault / "claims" / "claims.jsonl"), encoding="utf-8")
+        science_queue = science_vault / "_state" / "science-review-queue.jsonl"
+        queue_before = read(science_queue)
+        expect_command_failure(
+            [
+                sys.executable,
+                "scripts/wiki_science_review.py",
+                str(science_vault),
+                "--claims",
+                str(outside_science_claims),
+                "--queue",
+            ],
+            "science review claims path must stay inside the vault",
+            "science review accepted a claims path outside the vault",
+        )
+        if read(science_queue) != queue_before:
+            fail("science review modified the queue after rejecting an outside claims path")
 
         contradiction_vault = Path(tmp) / "contradiction-vault"
         shutil.copytree(vault, contradiction_vault)
