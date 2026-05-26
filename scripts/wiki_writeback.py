@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from wiki_common import ensure_within, read_text, rel, write_text
+from wiki_common import SOURCE_ID_RE, WIKILINK_RE, ensure_within, read_text, rel, write_text
 
 
 @dataclass(frozen=True)
@@ -76,6 +76,21 @@ def semantic_qa_warning(status: SemanticQaStatus, vault: Path) -> str:
     )
 
 
+def source_citations(body: str, vault: Path) -> set[str]:
+    source_ids = {path.stem for path in (vault / "sources").glob("LLM-*.md")}
+    citations: set[str] = set()
+    for target in WIKILINK_RE.findall(body):
+        source_id = Path(target.strip()).stem
+        if SOURCE_ID_RE.fullmatch(source_id) and source_id in source_ids:
+            citations.add(source_id)
+    return citations
+
+
+def require_source_citation(body: str, vault: Path) -> None:
+    if not source_citations(body, vault):
+        raise SystemExit("writeback body must cite at least one existing source page, e.g. [[LLM-0001]]")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Propose or apply a query writeback.")
     parser.add_argument("vault", type=Path)
@@ -103,6 +118,7 @@ def main() -> int:
         body = args.body
     else:
         raise SystemExit("provide --body or --body-file")
+    require_source_citation(body, vault)
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     before = read_text(target)

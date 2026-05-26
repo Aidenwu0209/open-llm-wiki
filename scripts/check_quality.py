@@ -1074,6 +1074,30 @@ def check_writeback_semantic_qa_gate() -> None:
             print(allowed.stdout)
             fail("writeback explicit failing-QA override did not apply the writeback")
 
+        unsupported = subprocess.run(
+            [
+                sys.executable,
+                "scripts/wiki_writeback.py",
+                str(writeback_vault),
+                "--target",
+                "concepts/attention-mechanisms.md",
+                "--query",
+                "unsupported synthesis",
+                "--body",
+                "This conclusion has no source citation.",
+            ],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if unsupported.returncode == 0:
+            print(unsupported.stdout)
+            fail("writeback accepted a body without an existing source citation")
+        if "writeback body must cite at least one existing source page" not in unsupported.stdout:
+            print(unsupported.stdout)
+            fail("writeback missing-citation failure did not explain the source citation requirement")
+
 
 def check_safety_boundaries() -> None:
     vault = ROOT / "examples" / "minimal-vault"
