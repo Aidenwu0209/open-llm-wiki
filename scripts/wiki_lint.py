@@ -189,6 +189,15 @@ def check_claim_hygiene(vault: Path, findings: list[Finding]) -> None:
             findings.append(Finding("P2", page.relpath, "time-sensitive wording on a page older than 90 days"))
 
 
+def stale_registry_source_ids(vault: Path) -> set[str]:
+    rows = load_registry(vault / "_state" / "source-registry.jsonl")
+    return {
+        str(row.get("source_id", ""))
+        for row in rows
+        if row.get("source_id") and str(row.get("status", "")) == "stale"
+    }
+
+
 def check_claim_graph(vault: Path, findings: list[Finding]) -> None:
     import hashlib
 
@@ -197,6 +206,7 @@ def check_claim_graph(vault: Path, findings: list[Finding]) -> None:
         findings.append(Finding("P2", "claims/claims.jsonl", "claim graph has not been generated"))
         return
     source_ids = {path.stem for path in (vault / "sources").glob("LLM-*.md")}
+    stale_source_ids = stale_registry_source_ids(vault)
     seen_sources: set[str] = set()
     seen_claim_ids: dict[str, int] = {}
     for number, line in enumerate(read_text(claims_path).splitlines(), 1):
@@ -244,6 +254,15 @@ def check_claim_graph(vault: Path, findings: list[Finding]) -> None:
         verdict = str(item.get("verdict", "unreviewed"))
         if verdict not in VALID_VERDICTS:
             findings.append(Finding("P1", f"claims/claims.jsonl:{number}", f"invalid verdict: {verdict!r}"))
+        if source_id in stale_source_ids and verdict != "stale":
+            findings.append(
+                Finding(
+                    "P1",
+                    f"claims/claims.jsonl:{number}",
+                    f"claim {claim_id or '<missing>'!r} references stale source {source_id!r} but verdict is {verdict!r}",
+                    "run stale-claim marking before concept revision or synthesis",
+                )
+            )
 
     missing = sorted(source_ids - seen_sources)
     if source_ids and missing:
