@@ -497,11 +497,24 @@ def original_source_for_artifact(vault: Path, combined: Path) -> tuple[Path, str
     if manifest_source is not None:
         return manifest_source
     stem = combined.parent.name.removesuffix("_markdown")
+    if combined.parent.parent != vault / "raw":
+        for suffix in (".pdf", ".md", ".txt"):
+            candidate = combined.parent.parent / f"{stem}{suffix}"
+            if candidate.exists() and candidate.is_file():
+                return candidate, candidate.relative_to(vault).as_posix()
     for suffix in (".pdf", ".md", ".txt"):
         candidate = vault / "raw" / f"{stem}{suffix}"
         if candidate.exists() and candidate.is_file():
             return candidate, candidate.relative_to(vault).as_posix()
     return combined, combined.relative_to(vault).as_posix()
+
+
+def discover_combined_files(raw_dir: Path) -> list[Path]:
+    combined_files: list[Path] = []
+    for combined in sorted(raw_dir.rglob("*_markdown/combined.md")):
+        ensure_within(combined, raw_dir, "combined Markdown input must stay under raw/")
+        combined_files.append(combined)
+    return combined_files
 
 
 def original_source_from_manifest(vault: Path, combined: Path) -> tuple[Path, str] | None:
@@ -550,7 +563,8 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Workflow:\n"
-            "  Reads each raw/*_markdown/combined.md file, creates draft source pages, runs deterministic\n"
+            "  Reads each raw/*_markdown/combined.md file, including nested corpus folders,\n"
+            "  creates draft source pages, runs deterministic\n"
             "  QA report generation, publishes passing pages to sources/LLM-NNNN.md, writes contradiction\n"
             "  reports, updates concept pages, index.md, log.md, and _state/id-counter.md.\n"
             "\n"
@@ -581,9 +595,7 @@ def main() -> int:
     ):
         raise SystemExit("refusing to overwrite existing wiki pages; use --resume or --force-empty")
 
-    combined_files = sorted(dirs["raw"].glob("*_markdown/combined.md"))
-    for combined in combined_files:
-        ensure_within(combined, dirs["raw"], "combined Markdown input must stay under raw/")
+    combined_files = discover_combined_files(dirs["raw"])
     if args.limit:
         combined_files = combined_files[: args.limit]
     if not combined_files:

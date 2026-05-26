@@ -2299,7 +2299,7 @@ def check_corpus_ingest_manifest_source_path() -> None:
         raw_pdf = vault / "raw" / "deepseek_paper" / "DeepSeek_Nested_2401.00001.pdf"
         raw_pdf.parent.mkdir(parents=True)
         raw_pdf.write_bytes(b"%PDF-1.4 fake nested source")
-        markdown_dir = vault / "raw" / "DeepSeek_Nested_2401.00001_markdown"
+        markdown_dir = raw_pdf.parent / "DeepSeek_Nested_2401.00001_markdown"
         markdown_dir.mkdir(parents=True)
         combined = markdown_dir / "combined.md"
         combined.write_text(
