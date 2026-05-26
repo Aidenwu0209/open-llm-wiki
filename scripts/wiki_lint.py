@@ -197,6 +197,12 @@ def check_claim_graph(vault: Path, findings: list[Finding]) -> None:
         findings.append(Finding("P2", "claims/claims.jsonl", "claim graph has not been generated"))
         return
     source_ids = {path.stem for path in (vault / "sources").glob("LLM-*.md")}
+    registry_rows = load_registry(vault / "_state" / "source-registry.jsonl")
+    registry_by_source_id = {
+        str(row.get("source_id", "")): row
+        for row in registry_rows
+        if row.get("source_id")
+    }
     seen_sources: set[str] = set()
     seen_claim_ids: dict[str, int] = {}
     for number, line in enumerate(read_text(claims_path).splitlines(), 1):
@@ -210,6 +216,7 @@ def check_claim_graph(vault: Path, findings: list[Finding]) -> None:
 
         claim_id = str(item.get("claim_id", ""))
         source_id = str(item.get("source_id", ""))
+        source_uuid = str(item.get("source_uuid", ""))
 
         # claim_id uniqueness
         if claim_id:
@@ -223,6 +230,19 @@ def check_claim_graph(vault: Path, findings: list[Finding]) -> None:
             findings.append(Finding("P1", f"claims/claims.jsonl:{number}", f"claim references missing source {source_id!r}"))
         else:
             seen_sources.add(source_id)
+        registry_row = registry_by_source_id.get(source_id)
+        if registry_rows and registry_row is None:
+            findings.append(Finding("P1", f"claims/claims.jsonl:{number}", f"claim references source_id {source_id!r} missing from source registry"))
+        elif registry_row is not None:
+            registry_uuid = str(registry_row.get("source_uuid", ""))
+            if source_uuid != registry_uuid:
+                findings.append(
+                    Finding(
+                        "P1",
+                        f"claims/claims.jsonl:{number}",
+                        f"claim source_uuid {source_uuid!r} does not match registry source_uuid {registry_uuid!r} for source_id {source_id!r}",
+                    )
+                )
 
         if not claim_id or not item.get("evidence"):
             findings.append(Finding("P2", f"claims/claims.jsonl:{number}", "claim is missing claim_id or evidence"))

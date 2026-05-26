@@ -634,6 +634,10 @@ def main() -> int:
         claims = load_jsonl(claims_path)
         if not claims:
             raise SystemExit("claim ledger: no claims extracted")
+        registry = {row.get("source_id"): row.get("source_uuid") for row in load_jsonl(q_vault / "_state" / "source-registry.jsonl")}
+        for claim in claims:
+            if claim.get("source_uuid") != registry.get(claim.get("source_id")):
+                raise SystemExit("claim ledger: claim source_uuid does not match source registry")
 
         required_fields = {
             "claim_id", "source_uuid", "source_id", "chunk_id",

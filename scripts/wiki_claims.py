@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from wiki_common import WIKILINK_RE, ensure_within, json_dump, parse_frontmatter, read_text, rel, write_text
+from wiki_source_registry import load_registry
 
 
 NUMBER_RE = re.compile(r"([-+]?\d+(?:,\d{3})*(?:\.\d+)?)\s*([A-Za-z%]+)?")
@@ -141,7 +142,16 @@ def concept_links(body: str, concept_names: set[str]) -> list[str]:
     return sorted(dict.fromkeys(links))
 
 
-def contribution_claim(source_id: str, title: str, body: str, concepts: list[str], relpath: str, chunk_id: str = "") -> dict[str, object] | None:
+def registry_source_uuids_by_id(vault: Path) -> dict[str, str]:
+    rows = load_registry(vault / "_state" / "source-registry.jsonl")
+    return {
+        str(row.get("source_id", "")): str(row.get("source_uuid", ""))
+        for row in rows
+        if row.get("source_id") and row.get("source_uuid")
+    }
+
+
+def contribution_claim(source_id: str, source_uuid: str, title: str, body: str, concepts: list[str], relpath: str, chunk_id: str = "") -> dict[str, object] | None:
     contribution = normalize_space(section(body, "One-Sentence Contribution"))
     if not contribution:
         return None
@@ -150,7 +160,7 @@ def contribution_claim(source_id: str, title: str, body: str, concepts: list[str
     now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     return {
         "claim_id": claim_id,
-        "source_uuid": source_uuid_from_id(source_id),
+        "source_uuid": source_uuid,
         "source_id": source_id,
         "chunk_id": chunk_id,
         "claim_text": contribution,
@@ -180,7 +190,7 @@ def contribution_claim(source_id: str, title: str, body: str, concepts: list[str
     }
 
 
-def metric_claims(source_id: str, title: str, body: str, concepts: list[str], relpath: str, chunk_id: str = "") -> list[dict[str, object]]:
+def metric_claims(source_id: str, source_uuid: str, title: str, body: str, concepts: list[str], relpath: str, chunk_id: str = "") -> list[dict[str, object]]:
     claims: list[dict[str, object]] = []
     key_data = section(body, "Key Data")
     now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -196,7 +206,7 @@ def metric_claims(source_id: str, title: str, body: str, concepts: list[str], re
         claims.append(
             {
                 "claim_id": claim_id,
-                "source_uuid": source_uuid_from_id(source_id),
+                "source_uuid": source_uuid,
                 "source_id": source_id,
                 "chunk_id": chunk_id,
                 "claim_text": claim_text,
@@ -230,17 +240,19 @@ def metric_claims(source_id: str, title: str, body: str, concepts: list[str], re
 
 def extract_claims(vault: Path) -> list[dict[str, object]]:
     concept_names = {path.stem for path in (vault / "concepts").glob("*.md")}
+    registry_source_uuids = registry_source_uuids_by_id(vault)
     claims: list[dict[str, object]] = []
     for path in sorted((vault / "sources").glob("LLM-*.md")):
         fields, body = parse_frontmatter(path)
         source_id = fields.get("id", path.stem)
+        source_uuid = registry_source_uuids.get(source_id, source_uuid_from_id(source_id))
         title = fields.get("title", path.stem)
         concepts = concept_links(body, concept_names)
         relpath = rel(path, vault)
-        first = contribution_claim(source_id, title, body, concepts, relpath)
+        first = contribution_claim(source_id, source_uuid, title, body, concepts, relpath)
         if first:
             claims.append(first)
-        claims.extend(metric_claims(source_id, title, body, concepts, relpath))
+        claims.extend(metric_claims(source_id, source_uuid, title, body, concepts, relpath))
     return claims
 
 
