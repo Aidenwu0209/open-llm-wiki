@@ -21,7 +21,7 @@ from wiki_raw_support import is_auxiliary_raw_source_path
 from wiki_source_registry import (
     load_registry,
     raw_hash,
-    find_by_raw_path,
+    register_raw,
 )
 
 PLAN_VERSION = 1
@@ -341,6 +341,27 @@ def build_plan(vault: Path) -> dict[str, Any]:
     }
 
 
+def register_raw_sources_for_plan(vault: Path) -> None:
+    """Persist stable registry identities for raw files before writing a plan."""
+    state_dir = ensure_within(vault / "_state", vault, "state directory must stay inside the vault")
+    state_dir.mkdir(parents=True, exist_ok=True)
+    registry_path = ensure_within(
+        state_dir / "source-registry.jsonl",
+        state_dir,
+        "registry must stay under _state/",
+    )
+    for path in _raw_source_files(vault):
+        raw_rel = path.relative_to(vault).as_posix()
+        register_raw(
+            registry_path,
+            state_dir,
+            raw_path=raw_rel,
+            raw_file=path,
+            title=path.stem.replace("_", " "),
+            kind="raw",
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate a runtime-owned ingest plan from vault state.",
@@ -366,6 +387,8 @@ def main() -> int:
     args = parser.parse_args()
 
     vault = args.vault.resolve()
+    if args.write:
+        register_raw_sources_for_plan(vault)
     plan = build_plan(vault)
 
     if args.format == "json":
