@@ -30,6 +30,7 @@ PLAN_STATES = frozenset({
     "published", "failed", "stale",
 })
 ARCHIVE_SUFFIXES = frozenset({".zip"})
+IGNORED_RAW_DIRS = frozenset({"__MACOSX", "inbox"})
 
 
 def _hash(path: Path) -> str:
@@ -50,7 +51,80 @@ def _manifest_for_combined(vault: Path, combined: Path) -> dict[str, Any] | None
         return None
 
 
-def _parse_artifact_for_raw(vault: Path, raw_rel: str) -> dict[str, Any]:
+def _path_to_vault_rel(vault: Path, path_text: str) -> str:
+    if not path_text:
+        return ""
+    path = Path(path_text)
+    if path.is_absolute():
+        try:
+            return path.resolve().relative_to(vault).as_posix()
+        except ValueError:
+            return ""
+    clean = path.as_posix().lstrip("./")
+    if clean == ".." or clean.startswith("../"):
+        return ""
+    return clean
+
+
+def _raw_rels_from_manifest(vault: Path, manifest: dict[str, Any]) -> list[str]:
+    rels: list[str] = []
+    for key in ("source_path", "input"):
+        rel = _path_to_vault_rel(vault, str(manifest.get(key, "")))
+        if rel.startswith("raw/") and rel not in rels:
+            rels.append(rel)
+    return rels
+
+
+def _fallback_raw_rel_for_combined(raw_dir: Path, combined: Path) -> str:
+    parent_rel = combined.parent.relative_to(raw_dir)
+    markdown_dir = parent_rel.name
+    if not markdown_dir.endswith("_markdown"):
+        return ""
+    source_name = f"{markdown_dir.removesuffix('_markdown')}.pdf"
+    return Path("raw").joinpath(*parent_rel.parent.parts, source_name).as_posix()
+
+
+def _combined_files_by_raw(vault: Path) -> dict[str, Path]:
+    combined_files: dict[str, Path] = {}
+    raw_dir = vault / "raw"
+    if not raw_dir.exists():
+        return combined_files
+    for combined in raw_dir.rglob("*_markdown/combined.md"):
+        manifest = _manifest_for_combined(vault, combined) or {}
+        raw_rels = _raw_rels_from_manifest(vault, manifest)
+        fallback = _fallback_raw_rel_for_combined(raw_dir, combined)
+        if fallback and fallback not in raw_rels:
+            raw_rels.append(fallback)
+        for raw_rel in raw_rels:
+            combined_files.setdefault(raw_rel, combined)
+    return combined_files
+
+
+def _is_ignored_raw_file(raw_dir: Path, path: Path) -> bool:
+    try:
+        rel_parts = path.relative_to(raw_dir).parts
+    except ValueError:
+        return True
+    parent_parts = rel_parts[:-1]
+    return (
+        path.name.startswith(".")
+        or is_auxiliary_raw_source_path(path)
+        or any(part.startswith(".") or part.endswith("_markdown") or part in IGNORED_RAW_DIRS for part in parent_parts)
+    )
+
+
+def _raw_source_files(vault: Path) -> list[Path]:
+    raw_dir = vault / "raw"
+    if not raw_dir.exists():
+        return []
+    return sorted(
+        path
+        for path in raw_dir.rglob("*")
+        if path.is_file() and not _is_ignored_raw_file(raw_dir, path)
+    )
+
+
+def _parse_artifact_for_raw(vault: Path, raw_rel: str, combined_files: dict[str, Path]) -> dict[str, Any]:
     raw_path = vault / raw_rel
     result: dict[str, Any] = {
         "artifact_path": "",
@@ -59,18 +133,22 @@ def _parse_artifact_for_raw(vault: Path, raw_rel: str) -> dict[str, Any]:
         "parser": "",
         "parser_version": "",
     }
-    # Check for *_markdown/combined.md
-    if raw_path.is_file():
+    combined = combined_files.get(raw_rel)
+    if combined is None and raw_path.is_file():
         stem = raw_path.stem
-        combined = vault / "raw" / f"{stem}_markdown" / "combined.md"
-        if combined.exists():
-            result["artifact_path"] = combined.relative_to(vault).as_posix()
-            result["artifact_hash"] = _hash(combined)
-            manifest = _manifest_for_combined(vault, combined)
-            if manifest:
-                result["manifest_source_hash"] = str(manifest.get("source_sha256", ""))
-                result["parser"] = manifest.get("parser", "layout-api")
-                result["parser_version"] = manifest.get("parser_version", manifest.get("version", ""))
+        candidates = [
+            raw_path.parent / f"{stem}_markdown" / "combined.md",
+            vault / "raw" / f"{stem}_markdown" / "combined.md",
+        ]
+        combined = next((candidate for candidate in candidates if candidate.exists()), None)
+    if combined and combined.exists():
+        result["artifact_path"] = combined.relative_to(vault).as_posix()
+        result["artifact_hash"] = _hash(combined)
+        manifest = _manifest_for_combined(vault, combined)
+        if manifest:
+            result["manifest_source_hash"] = str(manifest.get("source_sha256", ""))
+            result["parser"] = manifest.get("parser", "layout-api")
+            result["parser_version"] = manifest.get("parser_version", manifest.get("version", ""))
     return result
 
 
@@ -99,7 +177,7 @@ def classify_source(
     source_id = row.get("source_id", "")
     source_uuid = row.get("source_uuid", "")
 
-    artifact = _parse_artifact_for_raw(vault, raw_rel)
+    artifact = _parse_artifact_for_raw(vault, raw_rel, combined_files)
     source_page = _source_page_for_registry_row(vault, row)
 
     plan_item: dict[str, Any] = {
@@ -218,36 +296,25 @@ def build_plan(vault: Path) -> dict[str, Any]:
         if not is_auxiliary_raw_source_path(row.get("raw_path") or row.get("path", ""))
     ]
 
-    # Build combined.md map from raw/*_markdown/combined.md
-    combined_files: dict[str, Path] = {}
-    raw_dir = vault / "raw"
-    if raw_dir.exists():
-        for combined in raw_dir.glob("*_markdown/combined.md"):
-            stem = combined.parent.name.removesuffix("_markdown")
-            raw_rel = f"raw/{stem}.pdf"
-            combined_files[raw_rel] = combined
+    combined_files = _combined_files_by_raw(vault)
 
     # If registry is empty, scan raw/ for candidates
     if not rows:
-        raw_dir = vault / "raw"
-        if raw_dir.exists():
-            for path in sorted(raw_dir.iterdir()):
-                if path.is_dir() or path.name.startswith(".") or is_auxiliary_raw_source_path(path):
-                    continue
-                raw_rel = path.relative_to(vault).as_posix()
-                h = ""
-                try:
-                    h = raw_hash(path)
-                except OSError:
-                    pass
-                rows.append({
-                    "source_uuid": "",
-                    "source_id": "",
-                    "raw_path": raw_rel,
-                    "raw_hash": h,
-                    "status": "candidate",
-                    "kind": "raw",
-                })
+        for path in _raw_source_files(vault):
+            raw_rel = path.relative_to(vault).as_posix()
+            h = ""
+            try:
+                h = raw_hash(path)
+            except OSError:
+                pass
+            rows.append({
+                "source_uuid": "",
+                "source_id": "",
+                "raw_path": raw_rel,
+                "raw_hash": h,
+                "status": "candidate",
+                "kind": "raw",
+            })
 
     plan_items = []
     for row in rows:
