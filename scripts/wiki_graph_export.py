@@ -691,6 +691,16 @@ def ensure_graph_output(vault: Path, output: Path, graph_format: str) -> Path:
     return output
 
 
+def ensure_graph_aux_output(vault: Path, filename: str, message: str) -> Path:
+    graph_dir = ensure_within(
+        vault / ".graph",
+        vault,
+        ".graph output directory must stay inside the vault",
+    )
+    graph_dir.mkdir(parents=True, exist_ok=True)
+    return ensure_within(graph_dir / filename, graph_dir, message)
+
+
 def default_output(vault: Path, graph_format: str) -> Path:
     if graph_format == "obsidian-canvas":
         return vault / "canvas" / "wiki-graph.canvas"
@@ -823,11 +833,19 @@ def graph_findings(vault: Path) -> list[dict[str, str]]:
 def write_graph_outputs(vault: Path, graph: dict[str, Any], output: Path, graph_format: str) -> None:
     if graph_format == "json":
         write_text(output, json_dump(graph) + "\n")
-        schema_target = vault / ".graph" / "graph.schema.json"
+        schema_target = ensure_graph_aux_output(
+            vault,
+            "graph.schema.json",
+            "graph schema output must stay inside .graph",
+        )
         if GRAPH_SCHEMA_SOURCE.exists():
-            schema_target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(GRAPH_SCHEMA_SOURCE, schema_target)
-        write_text(vault / ".graph" / "graph-report.md", render_report(graph, output))
+        report_target = ensure_graph_aux_output(
+            vault,
+            "graph-report.md",
+            "graph report output must stay inside .graph",
+        )
+        write_text(report_target, render_report(graph, output))
         return
     canvas = to_canvas(graph)
     write_text(output, json_dump(canvas) + "\n")
