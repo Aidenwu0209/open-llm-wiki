@@ -2182,6 +2182,54 @@ def check_source_discovery_nested_raw_layout() -> None:
             fail("nested source discovery did not read sibling parsed markdown title")
 
 
+def check_source_discovery_skips_local_page_headings() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("local page heading discovery test vault initialization failed")
+        nested = vault / "raw" / "deepseek_paper"
+        nested.mkdir(parents=True)
+        fixtures = {
+            "DeepSeek-Coder-V2_2406.11931": "DeepSeek-Coder-V2: Breaking the Barrier of Closed-Source",
+            "Engram_2601.07372": "Conditional Memory via Scalable Lookup:",
+        }
+        for stem, title in fixtures.items():
+            (nested / f"{stem}.pdf").write_bytes(f"%PDF-1.4 fake {stem}\n".encode("utf-8"))
+            markdown_dir = nested / f"{stem}_markdown"
+            markdown_dir.mkdir()
+            (markdown_dir / "combined.md").write_text(
+                f"# Page 1\n\n{title}\nDeepSeek-AI\nAbstract\nThis source should not dedupe as Page 1.\n",
+                encoding="utf-8",
+            )
+        result = subprocess.run(
+            [sys.executable, "scripts/wiki_discover_sources.py", str(vault), "--fail-on-duplicates", "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode != 0:
+            print(result.stdout)
+            fail("source discovery treated local parser page headings as duplicate titles")
+        registry_rows = [
+            json.loads(line)
+            for line in (vault / "_state" / "source-registry.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        titles = {row.get("title") for row in registry_rows}
+        if "Page 1" in titles or titles != set(fixtures.values()):
+            print(json.dumps(registry_rows, indent=2, ensure_ascii=False, sort_keys=True))
+            fail("source discovery did not skip generic local parser page headings")
+
+
 def check_ingest_plan_nested_raw_layout() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -3099,6 +3147,7 @@ def main() -> None:
     check_source_uuid_stable_contract()
     check_raw_support_index_skipped()
     check_source_discovery_nested_raw_layout()
+    check_source_discovery_skips_local_page_headings()
     check_ingest_plan_nested_raw_layout()
     check_corpus_ingest_fresh_vault()
     check_corpus_ingest_manifest_source_path()
