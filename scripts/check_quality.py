@@ -2751,6 +2751,90 @@ def check_ingest_plan_raw_source_stale_contract() -> None:
             fail("ingest plan recommended skip for changed raw PDF")
 
 
+def check_ingest_plan_manifest_stale_contract() -> None:
+    import hashlib
+
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("ingest plan manifest stale contract vault initialization failed")
+
+        raw_pdf = vault / "raw" / "paper_b.pdf"
+        markdown_dir = vault / "raw" / "paper_b_markdown"
+        markdown_dir.mkdir(parents=True)
+        raw_pdf.write_bytes(b"%PDF-1.4 paper b v1\n")
+        source_hash_v1 = hashlib.sha256(raw_pdf.read_bytes()).hexdigest()
+        (markdown_dir / "combined.md").write_text(
+            "# Paper B\n\nParsed from raw source version 1.\n",
+            encoding="utf-8",
+        )
+        (markdown_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_path": "raw/paper_b.pdf",
+                    "source_sha256": source_hash_v1,
+                    "parser": "local",
+                    "parser_version": "test",
+                },
+                sort_keys=True,
+            ) + "\n",
+            encoding="utf-8",
+        )
+
+        discover = subprocess.run(
+            [sys.executable, "scripts/wiki_discover_sources.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if discover.returncode != 0:
+            print(discover.stdout)
+            fail("manifest stale contract initial discovery failed")
+
+        raw_pdf.write_bytes(b"%PDF-1.4 paper b v2 changed after parse\n")
+        rediscover = subprocess.run(
+            [sys.executable, "scripts/wiki_discover_sources.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if rediscover.returncode != 0:
+            print(rediscover.stdout)
+            fail("manifest stale contract rediscovery failed")
+
+        plan_result = subprocess.run(
+            [sys.executable, "scripts/wiki_ingest_plan.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if plan_result.returncode != 0:
+            print(plan_result.stdout)
+            fail("manifest stale contract ingest plan failed")
+        plan = json.loads(plan_result.stdout)
+        item = plan["items"][0]
+        if item.get("manifest_source_hash") != source_hash_v1:
+            print(json.dumps(item, indent=2, sort_keys=True))
+            fail("ingest plan did not read parser manifest source hash")
+        if item.get("state") != "stale" or item.get("freshness_verdict") != "stale":
+            print(json.dumps(item, indent=2, sort_keys=True))
+            fail("ingest plan used updated registry raw_hash instead of stale parser manifest hash")
+        if item.get("recommended_action") == "ingest":
+            print(json.dumps(item, indent=2, sort_keys=True))
+            fail("ingest plan recommended ingesting stale parse artifact")
+
+
 def check_ingest_plan_archive_guidance() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -2924,6 +3008,7 @@ def main() -> None:
     check_claim_ledger_verdict_synthesis()
     check_claim_ledger_stale_hook()
     check_ingest_plan_raw_source_stale_contract()
+    check_ingest_plan_manifest_stale_contract()
     check_ingest_plan_archive_guidance()
     check_ingest_plan_ignores_translation_sidecars()
     print("quality checks passed")

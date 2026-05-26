@@ -240,7 +240,7 @@ def classify_source(
         return plan_item
 
     # Check staleness: artifact exists but source hash changed
-    artifact_source_hash = row.get("raw_hash") or artifact["manifest_source_hash"]
+    artifact_source_hash = artifact["manifest_source_hash"] or row.get("raw_hash")
     if has_artifact and raw_exists and artifact_source_hash:
         current_hash = _hash(raw_file)
         if current_hash != artifact_source_hash:
