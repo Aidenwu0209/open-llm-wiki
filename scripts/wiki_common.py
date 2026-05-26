@@ -66,13 +66,17 @@ def ensure_within(path: Path, root: Path, message: str) -> Path:
 
 def parse_frontmatter(path: Path) -> tuple[dict[str, str], str]:
     text = read_text(path)
-    if not text.startswith("---\n"):
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
         return {}, text
-    parts = text.split("---\n", 2)
-    if len(parts) < 3:
+    close_index = next(
+        (index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---"),
+        None,
+    )
+    if close_index is None:
         return {}, text
-    block = parts[1]
-    body = parts[2]
+    block = "".join(lines[1:close_index])
+    body = "".join(lines[close_index + 1 :])
     fields: dict[str, str] = {}
     current_key = ""
     for raw_line in block.splitlines():
