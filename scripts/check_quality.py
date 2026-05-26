@@ -917,6 +917,45 @@ def check_pdf_to_markdown_http_errors() -> None:
         server.server_close()
 
 
+def check_pdf_to_markdown_rejects_remote_plain_http_api_url() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        input_path = root / "input.pdf"
+        input_path.write_bytes(b"%PDF-1.4 fake")
+        for index, api_url in enumerate(
+            [
+                "http://api.example.com/layout",
+                "http://localhost.evil.com/layout",
+                "http://localhost@api.example.com/layout",
+            ]
+        ):
+            output_dir = root / f"out-{index}"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/pdf_to_markdown.py",
+                    str(input_path),
+                    "--output",
+                    str(output_dir),
+                    "--api-url",
+                    api_url,
+                    "--dry-run",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if result.returncode == 0:
+                print(result.stdout)
+                fail(f"pdf_to_markdown.py accepted unsafe layout API URL: {api_url}")
+            if "layout API URL must use HTTPS unless it is localhost HTTP" not in result.stdout:
+                print(result.stdout)
+                fail("pdf_to_markdown.py did not explain the layout API URL transport requirement")
+            if output_dir.exists():
+                fail("pdf_to_markdown.py created output for a rejected layout API URL")
+
+
 def expect_command_failure(command: list[str], expected: str, message: str, cwd: Path = ROOT) -> str:
     result = subprocess.run(command, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if result.returncode == 0:
@@ -1979,6 +2018,7 @@ def main() -> None:
     check_ingest_corpus_boundary_usage()
     check_pdf_to_markdown_help()
     run_runtime_checks()
+    check_pdf_to_markdown_rejects_remote_plain_http_api_url()
     check_pdf_to_markdown_http_errors()
     check_pdf_corpus_to_markdown_progress_log()
     check_writeback_semantic_qa_gate()

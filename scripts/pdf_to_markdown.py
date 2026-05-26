@@ -93,6 +93,25 @@ def validate_url(url: str) -> None:
         raise ValueError(f"unsupported image URL scheme: {url}")
 
 
+def is_loopback_http_url(url: str) -> bool:
+    parsed = urlparse(url)
+    try:
+        if parsed.scheme != "http" or parsed.username or parsed.password:
+            return False
+        host = (parsed.hostname or "").lower()
+    except ValueError:
+        return False
+    return host in {"localhost", "127.0.0.1", "::1"}
+
+
+def validate_api_url(url: str) -> str:
+    api_url = url.strip()
+    parsed = urlparse(api_url)
+    if parsed.scheme == "https" or is_loopback_http_url(api_url):
+        return api_url
+    raise SystemExit("layout API URL must use HTTPS unless it is localhost HTTP")
+
+
 def build_payload(file_path: Path, file_type: int, options_file: Path | None) -> dict[str, object]:
     file_bytes = file_path.read_bytes()
     file_data = base64.b64encode(file_bytes).decode("ascii")
@@ -183,12 +202,13 @@ def convert(args: argparse.Namespace) -> int:
     if size > args.max_bytes:
         raise SystemExit(f"input is {size} bytes, above --max-bytes {args.max_bytes}")
 
+    api_url = validate_api_url(args.api_url)
     payload = build_payload(input_path, args.file_type, args.options_file)
     if args.dry_run:
         output_dir = args.output.resolve()
         print(f"input: {input_path}")
         print(f"output: {output_dir}")
-        print(f"api_url: {args.api_url}")
+        print(f"api_url: {api_url}")
         print(f"file_type: {args.file_type}")
         print(f"payload_keys: {sorted(payload.keys())}")
         print("dry run: no API request sent")
@@ -204,7 +224,7 @@ def convert(args: argparse.Namespace) -> int:
     }
     try:
         response, attempts = request_with_retries(
-            args.api_url,
+            api_url,
             payload,
             headers,
             args.timeout,
@@ -249,7 +269,7 @@ def convert(args: argparse.Namespace) -> int:
 
     manifest = {
         "input": str(input_path),
-        "api_url": args.api_url,
+        "api_url": api_url,
         "file_type": args.file_type,
         "attempts": attempts,
         "documents": markdown_paths,
@@ -272,6 +292,7 @@ def main() -> int:
             "API settings:\n"
             f"  Token is read from --token-env, default {DEFAULT_TOKEN_ENV}, with {FALLBACK_TOKEN_ENV} fallback.\n"
             f"  API URL defaults to OPEN_LLM_WIKI_LAYOUT_API_URL or {DEFAULT_API_URL}.\n"
+            "  Remote API URLs must use HTTPS; HTTP is allowed only for localhost/loopback endpoints.\n"
             "\n"
             "Output behavior:\n"
             "  Writes doc_*.md files, the combined Markdown file, downloaded image assets when enabled,\n"
