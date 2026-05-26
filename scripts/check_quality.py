@@ -396,6 +396,29 @@ def check_graph_export_layer() -> None:
 
         vault = Path(tmp) / "minimal-vault"
         shutil.copytree(ROOT / "examples" / "minimal-vault", vault)
+        line_anchor_claim = {
+            "claim_id": "claim-line-anchor-graph",
+            "source_id": "LLM-0001",
+            "source_uuid": "aa1e0f80381694c11724347e8329b917",
+            "source_title": "Attention Is All You Need",
+            "subject": "Attention Is All You Need",
+            "claim_type": "contribution",
+            "claim_text": "The paper introduced the Transformer, a sequence transduction architecture based on multi-head self-attention.",
+            "predicate": "contributes",
+            "object": "The paper introduced the Transformer, a sequence transduction architecture based on multi-head self-attention.",
+            "page": "sources/LLM-0001.md",
+            "concepts": ["attention-mechanisms"],
+            "evidence": "sources/LLM-0001.md#L15",
+            "evidence_quote": "The paper introduced the Transformer, a sequence transduction architecture based on multi-head self-attention.",
+            "evidence_hash": "1180df61daa4a2f6",
+            "anchor": "sources/LLM-0001.md#L15",
+            "created_at": "2026-05-10T00:07:39",
+            "updated_at": "2026-05-10T00:08:12",
+            "needs_review": False,
+            "verdict": "supported",
+        }
+        with (vault / "claims" / "claims.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(line_anchor_claim) + "\n")
         result = subprocess.run(
             [sys.executable, "scripts/wiki_graph_export.py", str(vault), "--format", "json"],
             cwd=ROOT,
@@ -426,6 +449,10 @@ def check_graph_export_layer() -> None:
                 fail(f"graph export missing {edge_type} edge")
         if not graph.get("evidence_paths"):
             fail("graph export did not produce concept -> claim -> source evidence paths")
+        report = read(report_path)
+        if "sources/LLM-0001.md#L15" in report and "claim evidence heading anchor was not found" in report:
+            print(report)
+            fail("graph export treated a valid #L line anchor as a missing heading anchor")
 
         focus_result = subprocess.run(
             [

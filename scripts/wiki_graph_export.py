@@ -125,6 +125,16 @@ def heading_exists(path: Path, anchor: str) -> bool:
     return False
 
 
+def line_anchor_exists(path: Path, anchor: str) -> bool | None:
+    match = re.fullmatch(r"L(\d+)", anchor.strip(), re.IGNORECASE)
+    if not match:
+        return None
+    line_number = int(match.group(1))
+    if line_number < 1:
+        return False
+    return line_number <= len(read_text(path).splitlines())
+
+
 def validate_evidence(vault: Path, evidence: str, fallback_source_id: str, issues: list[dict[str, str]]) -> None:
     if not evidence:
         issues.append(
@@ -153,6 +163,20 @@ def validate_evidence(vault: Path, evidence: str, fallback_source_id: str, issue
             }
         )
         return
+    if anchor:
+        line_anchor_valid = line_anchor_exists(page_path, anchor)
+        if line_anchor_valid is True:
+            return
+        if line_anchor_valid is False:
+            issues.append(
+                {
+                    "priority": "P2",
+                    "path": evidence,
+                    "message": "claim evidence line anchor was not found",
+                    "fix": "update the evidence anchor to an existing line",
+                }
+            )
+            return
     if anchor and not heading_exists(page_path, anchor):
         issues.append(
             {
