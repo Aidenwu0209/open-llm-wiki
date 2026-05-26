@@ -2318,6 +2318,54 @@ def check_ingest_plan_nested_raw_layout() -> None:
             fail("nested ingest plan did not link sibling combined.md artifact")
 
 
+def check_ingest_plan_write_registers_raw_sources() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("ingest plan registry identity test vault initialization failed")
+        (vault / "raw" / "test-source.md").write_text(
+            "# Test source\n\nA local markdown source should be stageable with a stable identity.\n",
+            encoding="utf-8",
+        )
+
+        write_plan = subprocess.run(
+            [sys.executable, "scripts/wiki_ingest_plan.py", str(vault), "--write"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if write_plan.returncode != 0:
+            print(write_plan.stdout)
+            fail("ingest plan registry identity write failed")
+
+        registry_rows = [
+            json.loads(line)
+            for line in read(vault / "_state" / "source-registry.jsonl").splitlines()
+            if line.strip()
+        ]
+        if len(registry_rows) != 1:
+            print(registry_rows)
+            fail("ingest plan --write did not persist exactly one raw registry row")
+        row = registry_rows[0]
+        plan = json.loads(read(vault / "_state" / "ingest-plan.json"))
+        item = plan["items"][0]
+        if not row.get("source_id") or not row.get("source_uuid"):
+            print(json.dumps(row, indent=2, sort_keys=True))
+            fail("ingest plan --write registry row is missing stable source identity")
+        if item.get("source_id") != row.get("source_id") or item.get("source_uuid") != row.get("source_uuid"):
+            print(json.dumps({"plan": item, "registry": row}, indent=2, sort_keys=True))
+            fail("ingest plan item did not reuse the persisted registry identity")
+
+
 def check_corpus_ingest_fresh_vault() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -3243,6 +3291,7 @@ def main() -> None:
     check_source_discovery_nested_raw_layout()
     check_source_discovery_skips_local_page_headings()
     check_ingest_plan_nested_raw_layout()
+    check_ingest_plan_write_registers_raw_sources()
     check_corpus_ingest_fresh_vault()
     check_corpus_ingest_skips_local_page_headings()
     check_corpus_ingest_manifest_source_path()
