@@ -29,6 +29,7 @@ PLAN_STATES = frozenset({
     "ready", "stageable", "blocked", "cached",
     "published", "failed", "stale",
 })
+ARCHIVE_SUFFIXES = frozenset({".zip"})
 
 
 def _hash(path: Path) -> str:
@@ -188,11 +189,18 @@ def classify_source(
 
     # Check for other parseable formats
     if raw_file and raw_file.exists():
-        if raw_file.suffix in (".md", ".txt"):
+        suffix = raw_file.suffix.lower()
+        if suffix in (".md", ".txt"):
             plan_item["state"] = "stageable"
             plan_item["reason"] = "local text/markdown file available for staging"
             plan_item["recommended_action"] = "ingest directly"
             plan_item["freshness_verdict"] = "fresh"
+            return plan_item
+        if suffix in ARCHIVE_SUFFIXES:
+            plan_item["state"] = "blocked"
+            plan_item["reason"] = "archive source must be extracted before contained evidence can be planned"
+            plan_item["recommended_action"] = "extract archive into raw/ or raw/<corpus>/, then rerun ingest plan"
+            plan_item["freshness_verdict"] = "archive"
             return plan_item
 
     plan_item["state"] = "blocked"
