@@ -198,6 +198,24 @@ def check_minimal_vault() -> None:
             fail(f"minimal vault index missing {link}")
 
 
+def check_runtime_frontmatter_line_endings() -> None:
+    from wiki_common import parse_frontmatter as runtime_parse_frontmatter
+
+    with tempfile.TemporaryDirectory() as tmp:
+        page = Path(tmp) / "source.md"
+        page.write_text(
+            "---\r\ntitle: CRLF Source\r\nstatus: stable\r\n---\r\n# Fallback\r\n\r\nBody.\r\n",
+            encoding="utf-8",
+        )
+        fields, body = runtime_parse_frontmatter(page)
+        if fields.get("title") != "CRLF Source":
+            fail("runtime frontmatter parser did not read CRLF title metadata")
+        if fields.get("status") != "stable":
+            fail("runtime frontmatter parser did not read CRLF status metadata")
+        if not body.startswith("# Fallback"):
+            fail("runtime frontmatter parser did not preserve the CRLF page body")
+
+
 def check_vault_init_obsidian_graph_filter() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -2156,6 +2174,7 @@ def main() -> None:
     check_skills()
     check_docs()
     check_minimal_vault()
+    check_runtime_frontmatter_line_endings()
     check_vault_init_obsidian_graph_filter()
     check_obsidian_setup_layer()
     check_graph_export_layer()
