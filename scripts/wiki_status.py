@@ -62,6 +62,11 @@ def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     write_text(path, text)
 
 
+def state_output_path(vault: Path, filename: str, message: str) -> Path:
+    state_dir = ensure_within(vault / "_state", vault, "_state must stay inside the vault")
+    return ensure_within(state_dir / filename, state_dir, message)
+
+
 def count_children(path: Path) -> int:
     if not path.exists():
         return 0
@@ -358,7 +363,11 @@ def generate_actions(vault: Path) -> list[dict[str, Any]]:
 
 
 def load_action_state(vault: Path) -> dict[str, str]:
-    state_path = vault / "_state" / "action-state.jsonl"
+    state_path = state_output_path(
+        vault,
+        "action-state.jsonl",
+        "action state must stay inside _state",
+    )
     if not state_path.exists():
         return {}
     state: dict[str, str] = {}
@@ -371,7 +380,11 @@ def load_action_state(vault: Path) -> dict[str, str]:
 
 
 def save_action_state(vault: Path, state: dict[str, str]) -> None:
-    state_path = vault / "_state" / "action-state.jsonl"
+    state_path = state_output_path(
+        vault,
+        "action-state.jsonl",
+        "action state must stay inside _state",
+    )
     now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     rows = []
     for aid, status in sorted(state.items()):
@@ -399,7 +412,11 @@ def resolve_action(vault: Path, action_id: str, new_status: str) -> bool:
 
 
 def save_actions_jsonl(vault: Path, actions: list[dict[str, Any]]) -> None:
-    actions_path = vault / "_state" / "actions.jsonl"
+    actions_path = state_output_path(
+        vault,
+        "actions.jsonl",
+        "actions output must stay inside _state",
+    )
     write_jsonl(actions_path, actions)
 
 

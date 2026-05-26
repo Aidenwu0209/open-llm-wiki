@@ -504,6 +504,56 @@ def main() -> int:
                 print(science_result.stdout)
                 raise SystemExit("science review eval allowed queue symlink escape")
 
+        status_action_symlink_vault = Path(tmp) / "status-action-symlink-vault"
+        shutil.copytree(vault, status_action_symlink_vault)
+        outside_action_state = Path(tmp) / "outside-action-state.jsonl"
+        outside_action_state.write_text("", encoding="utf-8")
+        action_state_path = status_action_symlink_vault / "_state" / "action-state.jsonl"
+        if action_state_path.exists():
+            action_state_path.unlink()
+        action_state_path.write_text("", encoding="utf-8")
+        if replace_with_symlink(action_state_path, outside_action_state):
+            status_result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/wiki_status.py",
+                    str(status_action_symlink_vault),
+                    "--resolve-action",
+                    "act-demo",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if status_result.returncode == 0 or outside_action_state.read_text(encoding="utf-8"):
+                print(status_result.stdout)
+                raise SystemExit("status eval allowed action-state symlink escape")
+
+        status_actions_symlink_vault = Path(tmp) / "status-actions-symlink-vault"
+        shutil.copytree(vault, status_actions_symlink_vault)
+        outside_actions = Path(tmp) / "outside-actions.jsonl"
+        outside_actions.write_text("", encoding="utf-8")
+        actions_path = status_actions_symlink_vault / "_state" / "actions.jsonl"
+        if not actions_path.exists():
+            actions_path.write_text("", encoding="utf-8")
+        if replace_with_symlink(actions_path, outside_actions):
+            status_result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/wiki_status.py",
+                    str(status_actions_symlink_vault),
+                    "--actions",
+                ],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if status_result.returncode == 0 or outside_actions.read_text(encoding="utf-8"):
+                print(status_result.stdout)
+                raise SystemExit("status eval allowed actions symlink escape")
+
         corpus_vault = Path(tmp) / "corpus-vault"
         run([sys.executable, "scripts/wiki_init.py", str(corpus_vault), "--repo-root", str(ROOT)])
         raw_dir = corpus_vault / "raw"
