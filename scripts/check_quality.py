@@ -1469,6 +1469,37 @@ def check_safety_boundaries() -> None:
             "contradiction report must stay inside the vault",
             "contradiction scan accepted a report path outside the vault",
         )
+        outside_contradiction_claims = Path(tmp) / "contradiction-outside-claims.jsonl"
+        outside_contradiction_claims.write_text(
+            (
+                '{"claim_id":"claim-outside-low","source_id":"OUTSIDE-A",'
+                '"claim_type":"metric","concepts":["attention-mechanisms"],'
+                '"metric_key":"unsafe boundary score","normalized_unit":"score",'
+                '"normalized_value":1,"value":1}\n'
+                '{"claim_id":"claim-outside-high","source_id":"OUTSIDE-B",'
+                '"claim_type":"metric","concepts":["attention-mechanisms"],'
+                '"metric_key":"unsafe boundary score","normalized_unit":"score",'
+                '"normalized_value":10,"value":10}\n'
+            ),
+            encoding="utf-8",
+        )
+        unsafe_contradiction_report = contradiction_vault / "qa-reports" / "outside-claims-report.md"
+        expect_command_failure(
+            [
+                sys.executable,
+                "scripts/wiki_contradictions.py",
+                str(contradiction_vault),
+                "--claims",
+                str(outside_contradiction_claims),
+                "--write-report",
+                "--report",
+                str(unsafe_contradiction_report),
+            ],
+            "contradiction claims path must stay inside the vault",
+            "contradiction scan accepted a claims path outside the vault",
+        )
+        if unsafe_contradiction_report.exists():
+            fail("contradiction scan wrote a report from an outside claims path")
 
         discovery_vault = Path(tmp) / "discovery-vault"
         shutil.copytree(vault, discovery_vault)
