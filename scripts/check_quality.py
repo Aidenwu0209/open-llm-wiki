@@ -1218,6 +1218,36 @@ def check_safety_boundaries() -> None:
         if "Semantic Claim Matrix" in raw_revision_target.read_text(encoding="utf-8"):
             fail("concept revision modified raw evidence through an unsafe concept id")
 
+        outside_revision_vault = Path(tmp) / "revision-outside-claims-vault"
+        shutil.copytree(vault, outside_revision_vault)
+        outside_revision_claims = Path(tmp) / "outside-revision-claims.jsonl"
+        outside_revision_claims.write_text(
+            (
+                '{"claim_id":"claim-outside-input","source_id":"OUTSIDE-LEDGER",'
+                '"claim_type":"contribution",'
+                '"object":"outside claims should not enter concept synthesis",'
+                '"evidence":"sources/OUTSIDE-LEDGER.md#Unsafe",'
+                '"concepts":["attention-mechanisms"],'
+                '"needs_review":false,"verdict":"supported"}\n'
+            ),
+            encoding="utf-8",
+        )
+        original_concept = read(outside_revision_vault / "concepts" / "attention-mechanisms.md")
+        expect_command_failure(
+            [
+                sys.executable,
+                "scripts/wiki_concept_revision.py",
+                str(outside_revision_vault),
+                "--claims",
+                str(outside_revision_claims),
+                "--apply",
+            ],
+            "concept revision claims path must stay inside the vault",
+            "concept revision accepted a claims path outside the vault",
+        )
+        if read(outside_revision_vault / "concepts" / "attention-mechanisms.md") != original_concept:
+            fail("concept revision modified a concept from an outside claims path")
+
         claims_vault = Path(tmp) / "claims-vault"
         shutil.copytree(vault, claims_vault)
         raw_claims_target = claims_vault / "raw" / "evil.md"
