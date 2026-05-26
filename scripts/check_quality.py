@@ -2835,6 +2835,60 @@ def check_ingest_plan_manifest_stale_contract() -> None:
             fail("ingest plan recommended ingesting stale parse artifact")
 
 
+def check_lint_parse_artifact_manifest_stale_contract() -> None:
+    import hashlib
+
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("lint parse artifact stale contract vault initialization failed")
+
+        raw_pdf = vault / "raw" / "paper_c.pdf"
+        markdown_dir = vault / "raw" / "paper_c_markdown"
+        markdown_dir.mkdir(parents=True)
+        raw_pdf.write_bytes(b"%PDF-1.4 paper c v1\n")
+        source_hash_v1 = hashlib.sha256(raw_pdf.read_bytes()).hexdigest()
+        (markdown_dir / "combined.md").write_text(
+            "# Paper C\n\nParsed from raw source version 1.\n",
+            encoding="utf-8",
+        )
+        (markdown_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "source_path": "raw/paper_c.pdf",
+                    "source_sha256": source_hash_v1,
+                    "parser": "local",
+                    "parser_version": "test",
+                },
+                sort_keys=True,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        raw_pdf.write_bytes(b"%PDF-1.4 paper c v2 changed after parse\n")
+
+        lint_result = subprocess.run(
+            [sys.executable, "scripts/wiki_lint.py", str(vault), "--fail-on", "p1"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if lint_result.returncode == 0:
+            print(lint_result.stdout)
+            fail("wiki_lint accepted a stale parse artifact manifest")
+        if "parse artifact source hash mismatch" not in lint_result.stdout:
+            print(lint_result.stdout)
+            fail("wiki_lint stale parse artifact finding did not explain the hash mismatch")
+
+
 def check_ingest_plan_archive_guidance() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -3009,6 +3063,7 @@ def main() -> None:
     check_claim_ledger_stale_hook()
     check_ingest_plan_raw_source_stale_contract()
     check_ingest_plan_manifest_stale_contract()
+    check_lint_parse_artifact_manifest_stale_contract()
     check_ingest_plan_archive_guidance()
     check_ingest_plan_ignores_translation_sidecars()
     print("quality checks passed")
