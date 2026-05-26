@@ -460,9 +460,76 @@ def merge_concept_page(path: Path, items: list[Item]) -> None:
         write_text(path, text.rstrip() + "\n" + "\n".join(additions) + "\n")
 
 
+def count_nonempty_lines(path: Path) -> int:
+    if not path.exists():
+        return 0
+    return sum(1 for line in read_text(path).splitlines() if line.strip())
+
+
+def plural(value: int, singular: str, plural_form: str) -> str:
+    return f"{value} {singular if value == 1 else plural_form}"
+
+
+def render_pipeline_status(vault: Path) -> str:
+    source_count = len(list((vault / "sources").glob("*.md")))
+    concept_count = len(list((vault / "concepts").glob("*.md")))
+    claims_count = count_nonempty_lines(vault / "claims" / "claims.jsonl")
+    review_count = count_nonempty_lines(vault / "_state" / "science-review-queue.jsonl")
+    source_state = (
+        "No source pages have been generated yet"
+        if source_count == 0
+        else f"{plural(source_count, 'stable source page', 'stable source pages')} published"
+    )
+    source_next = (
+        "Run corpus ingest to create `sources/LLM-NNNN.md`"
+        if source_count == 0
+        else "Run claim extraction, semantic QA, and review gates before trusting synthesis"
+    )
+    concept_state = (
+        "No concept pages have been generated yet"
+        if concept_count == 0
+        else f"{plural(concept_count, 'concept page', 'concept pages')} available for synthesis reading"
+    )
+    concept_next = (
+        "Run corpus ingest or wiki grow after sources exist"
+        if concept_count == 0
+        else "Check source links and review status before treating concepts as stable"
+    )
+    if claims_count == 0 and review_count == 0:
+        claims_state = "No claims or review queue have been generated yet"
+        claims_next = "Run claim extraction and review gates after sources exist"
+    else:
+        claims_state = f"{plural(claims_count, 'claim', 'claims')} / {plural(review_count, 'review queue item', 'review queue items')}"
+        claims_next = "Resolve review-required claims before writeback or long-term synthesis"
+    return (
+        "This index reflects the latest corpus ingest state.\n\n"
+        "| Stage | Current State | Next Action |\n"
+        "| --- | --- | --- |\n"
+        "| Raw evidence | Inspect `raw/` and parser manifests before trusting generated pages | Keep raw evidence immutable after ingest |\n"
+        f"| Sources | {source_state} | {source_next} |\n"
+        f"| Concepts | {concept_state} | {concept_next} |\n"
+        f"| Claims and review | {claims_state} | {claims_next} |\n\n"
+    )
+
+
+def refresh_pipeline_status(text: str, vault: Path) -> str:
+    heading = "## Pipeline Status\n"
+    section = render_pipeline_status(vault)
+    if heading in text:
+        prefix, rest = text.split(heading, 1)
+        next_heading = rest.find("\n## ")
+        if next_heading == -1:
+            return prefix + heading + section
+        return prefix + heading + section + rest[next_heading + 1:]
+    if text.startswith("# LLM Wiki Index\n\n"):
+        return text.replace("# LLM Wiki Index\n\n", "# LLM Wiki Index\n\n" + heading + section, 1)
+    return "# LLM Wiki Index\n\n" + heading + section + text.lstrip()
+
+
 def merge_index(vault: Path, items: list[Item], concept_items: dict[str, list[Item]], concept_defs: dict[str, tuple[str, str]]) -> None:
     index_path = vault / "index.md"
     text = read_text(index_path) if index_path.exists() else ""
+    text = refresh_pipeline_status(text, vault)
     source_rows = [
         f"| [[{item.source_id}]] | {item.title.replace('|', '/')} | {', '.join(item.tags)} |"
         for item in items
@@ -764,7 +831,9 @@ def main() -> int:
     else:
         write_text(
             ensure_within(vault / "index.md", vault, "index output must stay inside the vault"),
-            "# LLM Wiki Index\n\n## Sources\n| ID | Title | Tags |\n| --- | --- | --- |\n"
+            "# LLM Wiki Index\n\n## Pipeline Status\n"
+            + render_pipeline_status(vault)
+            + "## Sources\n| ID | Title | Tags |\n| --- | --- | --- |\n"
             + source_rows
             + "\n\n## Concepts\n| Concept | Key Question | Sources |\n| --- | --- | --- |\n"
             + concept_rows

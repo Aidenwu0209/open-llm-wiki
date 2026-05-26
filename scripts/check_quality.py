@@ -2628,6 +2628,13 @@ def check_corpus_ingest_resume_continues() -> None:
         if not (vault / "sources" / "LLM-0002.md").exists():
             print(resumed.stdout)
             fail("resume corpus ingest did not continue to LLM-0002")
+        index = read(vault / "index.md")
+        if "No source pages have been generated yet" in index:
+            print(index)
+            fail("resume corpus ingest left stale no-source pipeline status in index.md")
+        if "2 stable source pages published" not in index:
+            print(index)
+            fail("resume corpus ingest did not refresh index.md source count")
         lint = subprocess.run(
             [sys.executable, "scripts/wiki_lint.py", str(vault), "--fail-on", "p1"],
             cwd=ROOT,
