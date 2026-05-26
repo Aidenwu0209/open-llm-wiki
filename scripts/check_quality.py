@@ -1888,6 +1888,109 @@ def check_source_discovery_arxiv_filename() -> None:
             fail("source discovery did not extract arXiv ID from filename")
 
 
+def check_source_uuid_stable_contract() -> None:
+    import hashlib
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from wiki_source_registry import register_raw, source_uuid_from_id
+
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("stable source_uuid register_raw vault initialization failed")
+        raw_file = vault / "raw" / "Registered_Source.pdf"
+        raw_file.write_bytes(b"%PDF-1.4 registered stable uuid")
+        row = register_raw(
+            vault / "_state" / "source-registry.jsonl",
+            vault / "_state",
+            "raw/Registered_Source.pdf",
+            raw_file,
+            title="Registered Source",
+        )
+        if row.get("source_uuid") != source_uuid_from_id(str(row.get("source_id"))):
+            print(row)
+            fail("register_raw did not derive source_uuid from source_id")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "vault"
+        init_result = subprocess.run(
+            [sys.executable, "scripts/wiki_init.py", str(vault), "--repo-root", str(ROOT)],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if init_result.returncode != 0:
+            print(init_result.stdout)
+            fail("stable source_uuid test vault initialization failed")
+        (vault / "raw" / "Stable_Source_Test.pdf").write_bytes(b"%PDF-1.4 stable uuid")
+
+        first = subprocess.run(
+            [sys.executable, "scripts/wiki_discover_sources.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if first.returncode != 0:
+            print(first.stdout)
+            fail("stable source_uuid discovery failed")
+        rows = [
+            json.loads(line)
+            for line in read(vault / "_state" / "source-registry.jsonl").splitlines()
+            if line.strip()
+        ]
+        if len(rows) != 1:
+            print(rows)
+            fail("stable source_uuid discovery should create one registry row")
+        source_id = rows[0].get("source_id")
+        expected_uuid = hashlib.sha256(str(source_id).encode("utf-8")).hexdigest()[:32]
+        if rows[0].get("source_uuid") != expected_uuid:
+            print(rows[0])
+            fail("source discovery did not derive source_uuid from source_id")
+
+        second = subprocess.run(
+            [sys.executable, "scripts/wiki_discover_sources.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if second.returncode != 0:
+            print(second.stdout)
+            fail("stable source_uuid rediscovery failed")
+        rows_after = [
+            json.loads(line)
+            for line in read(vault / "_state" / "source-registry.jsonl").splitlines()
+            if line.strip()
+        ]
+        if rows_after != rows:
+            print(rows)
+            print(rows_after)
+            fail("source rediscovery changed stable registry identity")
+
+        rows_after[0]["source_uuid"] = "not-derived-from-source-id"
+        write_jsonl(vault / "_state" / "source-registry.jsonl", rows_after)
+        lint = subprocess.run(
+            [sys.executable, "scripts/wiki_lint.py", str(vault), "--fail-on", "p1"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if lint.returncode == 0 or "does not match stable id" not in lint.stdout:
+            print(lint.stdout)
+            fail("wiki_lint should reject registry source_uuid not derived from source_id")
+
+
 def check_raw_support_index_skipped() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -2746,6 +2849,7 @@ def main() -> None:
     check_pdf_corpus_report_parser_warnings()
     check_pdf_corpus_report_nested_raw_layout()
     check_source_discovery_arxiv_filename()
+    check_source_uuid_stable_contract()
     check_raw_support_index_skipped()
     check_source_discovery_nested_raw_layout()
     check_corpus_ingest_fresh_vault()

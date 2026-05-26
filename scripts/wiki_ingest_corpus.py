@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -21,6 +20,7 @@ from wiki_source_registry import (
     raw_hash as compute_raw_hash,
     register_raw,
     save_registry,
+    source_uuid_from_id,
     update_status,
 )
 
@@ -536,10 +536,10 @@ def find_registry_row(rows: list[dict[str, object]], raw_rel: str, artifact_rel:
 
 
 def ensure_registry_identity(row: dict[str, object], state_dir: Path, today: str) -> None:
-    if not row.get("source_uuid"):
-        row["source_uuid"] = uuid.uuid4().hex
     if not row.get("source_id"):
         row["source_id"] = allocate_source_id(state_dir)
+    if not row.get("source_uuid"):
+        row["source_uuid"] = source_uuid_from_id(str(row["source_id"]))
     if not row.get("created"):
         row["created"] = today
 
@@ -604,10 +604,9 @@ def main() -> int:
             dup = find_by_raw_hash(registry_rows, h)
             if dup is not None:
                 ensure_registry_identity(dup, dirs["_state"], args.today)
-                import uuid as _uuid
                 source_id_new = allocate_source_id(dirs["_state"])
                 new_row = {
-                    "source_uuid": _uuid.uuid4().hex,
+                    "source_uuid": source_uuid_from_id(source_id_new),
                     "source_id": source_id_new,
                     "raw_hash": h,
                     "raw_path": raw_rel,
