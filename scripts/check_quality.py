@@ -1978,6 +1978,10 @@ def check_claim_ledger_schema() -> None:
         "normalized_claim", "evidence_quote", "evidence_hash", "anchor",
         "verdict", "created_at", "updated_at",
     }
+    registry = {
+        row.get("source_id"): row.get("source_uuid")
+        for row in (json.loads(l) for l in read(vault / "_state" / "source-registry.jsonl").splitlines() if l.strip())
+    }
 
     for i, line in enumerate(read(claims_path).splitlines(), 1):
         if not line.strip():
@@ -1994,6 +1998,26 @@ def check_claim_ledger_schema() -> None:
             expected = hashlib.sha256(eq.encode("utf-8")).hexdigest()[:16]
             if eh != expected:
                 fail(f"claim ledger row {i}: evidence_hash mismatch")
+        expected_uuid = registry.get(claim.get("source_id"))
+        if claim.get("source_uuid") != expected_uuid:
+            fail(f"claim ledger row {i}: source_uuid does not match source registry")
+
+    with tempfile.TemporaryDirectory() as td:
+        lint_vault = Path(td) / "vault"
+        shutil.copytree(vault, lint_vault)
+        copied_claims = [json.loads(l) for l in read(lint_vault / "claims" / "claims.jsonl").splitlines() if l.strip()]
+        copied_claims[0]["source_uuid"] = "not-a-registry-uuid"
+        write_jsonl(lint_vault / "claims" / "claims.jsonl", copied_claims)
+        result = subprocess.run(
+            [sys.executable, "scripts/wiki_lint.py", str(lint_vault), "--fail-on", "p1"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode == 0 or "source_uuid" not in result.stdout:
+            print(result.stdout)
+            fail("claim ledger: lint should fail on source_uuid mismatch")
     print("claim ledger schema: OK")
 
 
