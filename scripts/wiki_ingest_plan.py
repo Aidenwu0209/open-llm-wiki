@@ -253,6 +253,9 @@ def build_plan(vault: Path) -> dict[str, Any]:
     for row in rows:
         if row.get("duplicate_of"):
             continue
+        raw_rel = row.get("raw_path", "") or row.get("path", "")
+        if raw_rel and is_auxiliary_raw_source_path(raw_rel):
+            continue
         item = classify_source(vault, row, combined_files)
         plan_items.append(item)
 
