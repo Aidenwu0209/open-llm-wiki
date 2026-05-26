@@ -141,6 +141,19 @@ def concept_links(body: str, concept_names: set[str]) -> list[str]:
     return sorted(dict.fromkeys(links))
 
 
+def source_page_path(vault: Path, path: Path) -> Path:
+    sources = vault / "sources"
+    if sources.is_symlink():
+        raise SystemExit("claim source directory must not be a symlink")
+    if path.is_symlink():
+        try:
+            display = path.relative_to(vault).as_posix()
+        except ValueError:
+            display = path.as_posix()
+        raise SystemExit(f"claim source page must not be a symlink: {display}")
+    return ensure_within(path, sources, "claim source page must stay under sources/")
+
+
 def contribution_claim(source_id: str, title: str, body: str, concepts: list[str], relpath: str, chunk_id: str = "") -> dict[str, object] | None:
     contribution = normalize_space(section(body, "One-Sentence Contribution"))
     if not contribution:
@@ -231,7 +244,8 @@ def metric_claims(source_id: str, title: str, body: str, concepts: list[str], re
 def extract_claims(vault: Path) -> list[dict[str, object]]:
     concept_names = {path.stem for path in (vault / "concepts").glob("*.md")}
     claims: list[dict[str, object]] = []
-    for path in sorted((vault / "sources").glob("LLM-*.md")):
+    for candidate in sorted((vault / "sources").glob("LLM-*.md")):
+        path = source_page_path(vault, candidate)
         fields, body = parse_frontmatter(path)
         source_id = fields.get("id", path.stem)
         title = fields.get("title", path.stem)

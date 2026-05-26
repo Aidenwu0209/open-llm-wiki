@@ -594,6 +594,36 @@ def check_claim_extraction() -> None:
             if not evidence.startswith("sources/LLM-0001.md#Key Data"):
                 fail("metric claim evidence must point back to a source page anchor")
 
+        raw_source = vault / "raw" / "symlink-source.md"
+        raw_source.write_text(
+            "---\n"
+            "id: LLM-9999\n"
+            "title: Raw Symlink Source\n"
+            "---\n"
+            "# Raw Symlink Source\n\n"
+            "## One-Sentence Contribution\n\n"
+            "This raw symlink source should never bypass source publication.\n",
+            encoding="utf-8",
+        )
+        symlink_source = vault / "sources" / "LLM-9999.md"
+        try:
+            symlink_source.symlink_to(raw_source)
+        except (NotImplementedError, OSError):
+            symlink_source = None
+        if symlink_source is not None:
+            result = subprocess.run(
+                [sys.executable, "scripts/wiki_claims.py", str(vault), "--format", "json"],
+                cwd=ROOT,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            if result.returncode == 0:
+                fail("claim extraction accepted a symlinked source page")
+            if "claim source page must not be a symlink" not in result.stdout:
+                print(result.stdout)
+                fail("claim source symlink failure did not explain the source-page boundary")
+
 
 def check_semantic_qa_qualitative_metric_placeholder() -> None:
     with tempfile.TemporaryDirectory() as tmp:
