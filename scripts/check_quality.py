@@ -532,6 +532,10 @@ def check_status_dashboard_layer() -> None:
             print(init_result.stdout)
             fail("status dashboard test vault initialization failed")
 
+        nested_raw_dir = vault / "raw" / "deepseek_paper"
+        nested_raw_dir.mkdir(parents=True, exist_ok=True)
+        (nested_raw_dir / "DeepSeek-Test.pdf").write_bytes(b"%PDF-1.4\n% synthetic nested raw evidence\n")
+
         status_result = subprocess.run(
             [sys.executable, "scripts/wiki_status.py", str(vault)],
             cwd=ROOT,
@@ -551,6 +555,12 @@ def check_status_dashboard_layer() -> None:
             if text not in status_result.stdout:
                 print(status_result.stdout)
                 fail(f"wiki_status.py output missing {text!r}")
+        if "0 inbox / 1 raw evidence" not in status_result.stdout:
+            print(status_result.stdout)
+            fail("wiki_status.py did not count nested raw evidence in dashboard status")
+        if "Process 1 raw evidence item(s)" not in status_result.stdout:
+            print(status_result.stdout)
+            fail("wiki_status.py did not surface a parse action for nested raw evidence")
 
         existing = subprocess.run(
             [sys.executable, "scripts/wiki_status.py", str(vault), "--write-dashboard"],
