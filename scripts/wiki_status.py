@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from wiki_common import ensure_within, json_dump, parse_frontmatter, read_text, rel, write_text
+from wiki_raw_support import is_auxiliary_raw_source_path
 
 try:
     from wiki_lint import lint as wiki_lint
@@ -30,6 +31,7 @@ PROMPT_TEMPLATES = [
 ]
 PROTECTED_OUTPUT_DIRS = {"raw", "sources", "drafts", "concepts", "claims", "qa-reports", "_state"}
 STALE_WORDS = ("latest", "current", "state of the art", "sota", "now")
+IGNORED_RAW_DIRS = frozenset({"__MACOSX"})
 
 ACTION_KINDS = frozenset({
     "parse_required", "artifact_stale", "ingest_failed", "published_duplicate",
@@ -71,6 +73,39 @@ def count_children(path: Path) -> int:
     if not path.exists():
         return 0
     return sum(1 for item in path.iterdir() if not item.name.startswith("."))
+
+
+def is_raw_evidence_file(raw_dir: Path, path: Path) -> bool:
+    if not path.is_file() or path.name.startswith(".") or is_auxiliary_raw_source_path(path):
+        return False
+    try:
+        parts = path.relative_to(raw_dir).parts
+    except ValueError:
+        return False
+    parent_parts = parts[:-1]
+    return not any(part.startswith(".") or part.endswith("_markdown") or part in IGNORED_RAW_DIRS for part in parent_parts)
+
+
+def raw_evidence_files(vault: Path) -> list[Path]:
+    raw_dir = vault / "raw"
+    if not raw_dir.exists():
+        return []
+    return sorted(path for path in raw_dir.rglob("*") if is_raw_evidence_file(raw_dir, path))
+
+
+def pending_raw_evidence_files(vault: Path) -> list[Path]:
+    items = raw_evidence_files(vault)
+    registry_rows = load_jsonl(vault / "_state" / "source-registry.jsonl")
+    if not registry_rows:
+        return items
+    pending_paths = {
+        str(row.get("raw_path") or row.get("path") or "")
+        for row in registry_rows
+        if str(row.get("status", "")) not in {"published", "archived"}
+    }
+    if not pending_paths:
+        return []
+    return [path for path in items if rel(path, vault) in pending_paths]
 
 
 def markdown_files(path: Path, pattern: str = "*.md") -> list[Path]:
@@ -204,6 +239,26 @@ def generate_actions(vault: Path) -> list[dict[str, Any]]:
                 recommended_action="Run the ingest pipeline to parse and draft source pages.",
                 command="python .open-llm-wiki/scripts/wiki_ingest_corpus.py .",
             ))
+
+    pending_raw_items = [
+        path for path in pending_raw_evidence_files(vault)
+        if not rel(path, vault).startswith("raw/inbox/")
+    ]
+    if pending_raw_items:
+        actions.append(make_action(
+            kind="parse_required",
+            severity="medium",
+            title=f"Process {len(pending_raw_items)} raw evidence item(s)",
+            body=(
+                f"{len(pending_raw_items)} raw evidence file(s) outside raw/inbox are registered "
+                "or discoverable but not published as source pages yet."
+            ),
+            reason="Raw evidence should be parsed and ingested before users treat the wiki as complete.",
+            primary_object_type="directory",
+            primary_object_id="raw/",
+            affected_objects=[rel(p, vault) for p in pending_raw_items],
+            recommended_action="Convert raw evidence to parsed Markdown/source pages, then run corpus ingest.",
+        ))
 
     # Draft sources needing QA
     drafts = markdown_files(vault / "drafts")
@@ -448,6 +503,7 @@ def build_status(vault: Path, limit: int = 8) -> dict[str, Any]:
         "vault": str(vault),
         "counts": {
             "raw_inbox": count_children(vault / "raw" / "inbox"),
+            "raw_evidence": len(raw_evidence_files(vault)),
             "draft_sources": len(markdown_files(vault / "drafts")),
             "stable_sources": len(markdown_files(vault / "sources", "LLM-*.md")),
             "claims": len(claims),
@@ -577,7 +633,7 @@ def render_status(status: dict[str, Any]) -> str:
         "## Pipeline Status\n\n"
         "| Area | Current State | Next Action |\n"
         "| --- | ---: | --- |\n"
-        f"| Raw inbox | {counts['raw_inbox']} {plural(counts['raw_inbox'], 'item')} | Ingest or move accepted evidence into `raw/` |\n"
+        f"| Raw inbox | {counts['raw_inbox']} inbox / {counts['raw_evidence']} raw evidence | Ingest or move accepted evidence into `raw/` |\n"
         f"| Draft source pages | {counts['draft_sources']} | Run QA before promoting drafts |\n"
         f"| Stable source pages | {counts['stable_sources']} | Use as citable evidence in concepts |\n"
         f"| Claims | {counts['claims']} total / {counts['claims_needing_review']} needing review | Run science review before treating review-required claims as trusted |\n"
