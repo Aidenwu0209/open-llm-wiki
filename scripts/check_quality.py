@@ -1451,6 +1451,59 @@ def check_writeback_semantic_qa_gate() -> None:
             fail("writeback missing-citation failure did not explain the source citation requirement")
 
 
+def check_writeback_new_concept_proposal() -> None:
+    vault = ROOT / "examples" / "minimal-vault"
+    with tempfile.TemporaryDirectory() as tmp:
+        writeback_vault = Path(tmp) / "writeback-new-page-vault"
+        shutil.copytree(vault, writeback_vault)
+        target = writeback_vault / "concepts" / "query-derived-strategy.md"
+        command = [
+            sys.executable,
+            "scripts/wiki_writeback.py",
+            str(writeback_vault),
+            "--target",
+            "concepts/query-derived-strategy.md",
+            "--query",
+            "summarize strategy",
+            "--body",
+            "Strategy synthesis should remain reviewable and source-cited. [[LLM-0001]]",
+        ]
+        proposal = subprocess.run(command, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if proposal.returncode != 0:
+            print(proposal.stdout)
+            fail("writeback rejected a new concept-page proposal")
+        if "id: query-derived-strategy" not in proposal.stdout or "# Query Derived Strategy" not in proposal.stdout:
+            print(proposal.stdout)
+            fail("new concept-page proposal did not include a page skeleton")
+        if target.exists():
+            fail("new concept-page proposal wrote the target without --apply")
+        expect_command_failure(
+            command + ["--apply"],
+            "--apply requires --approval-note",
+            "new concept writeback applied without an explicit approval note",
+        )
+        if target.exists():
+            fail("new concept writeback target was created after rejected apply")
+        applied = subprocess.run(
+            command + ["--apply", "--approval-note", "user approved new concept writeback test"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if applied.returncode != 0:
+            print(applied.stdout)
+            fail("approved new concept writeback was rejected")
+        text = target.read_text(encoding="utf-8")
+        if "Query-Derived Note" not in text or "[[LLM-0001]]" not in text:
+            print(text)
+            fail("approved new concept writeback did not create the expected cited page")
+        log_text = (writeback_vault / "log.md").read_text(encoding="utf-8")
+        if "approval: 'user approved new concept writeback test'" not in log_text:
+            print(log_text)
+            fail("new concept writeback did not log approval")
+
+
 def check_safety_boundaries() -> None:
     vault = ROOT / "examples" / "minimal-vault"
     with tempfile.TemporaryDirectory() as tmp:
@@ -3474,6 +3527,7 @@ def main() -> None:
     check_pdf_corpus_to_markdown_progress_log()
     check_pdf_corpus_to_markdown_defaults_local()
     check_writeback_semantic_qa_gate()
+    check_writeback_new_concept_proposal()
     check_safety_boundaries()
     check_archive_extraction_safety()
     check_pdf_corpus_report_short_outputs()
