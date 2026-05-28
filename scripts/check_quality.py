@@ -2065,6 +2065,126 @@ def check_source_uuid_stable_contract() -> None:
             fail("wiki_lint should reject registry source_uuid not derived from source_id")
 
 
+def check_source_identity_repair() -> None:
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from wiki_source_registry import source_uuid_from_id
+
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp) / "minimal-vault"
+        shutil.copytree(ROOT / "examples" / "minimal-vault", vault)
+
+        legacy_uuid = "sha256:legacy-raw-hash"
+        expected_uuid = source_uuid_from_id("LLM-0001")
+
+        registry_path = vault / "_state" / "source-registry.jsonl"
+        registry_rows = [
+            json.loads(line)
+            for line in read(registry_path).splitlines()
+            if line.strip()
+        ]
+        registry_rows[0]["source_uuid"] = legacy_uuid
+        write_jsonl(registry_path, registry_rows)
+
+        claims_path = vault / "claims" / "claims.jsonl"
+        claims = [json.loads(line) for line in read(claims_path).splitlines() if line.strip()]
+        for claim in claims:
+            claim["source_uuid"] = legacy_uuid
+        write_jsonl(claims_path, claims)
+
+        write_jsonl(vault / "_state" / "science-review-queue.jsonl", [{
+            "claim_id": "claim-source-identity-repair",
+            "source_id": "LLM-0001",
+            "source_uuid": legacy_uuid,
+        }])
+        write_jsonl(vault / "_state" / "desktop-source-registry.jsonl", [{
+            "sourceId": "LLM-0001",
+            "sourceUuid": legacy_uuid,
+        }])
+        write_jsonl(vault / "_state" / "desktop-artifacts.jsonl", [{
+            "sourceId": "LLM-0001",
+            "sourceUuid": legacy_uuid,
+        }])
+        (vault / "_state" / "desktop-ingest-plan.json").write_text(
+            json.dumps({"entries": [{"sourceId": "LLM-0001", "sourceUuid": legacy_uuid}]}),
+            encoding="utf-8",
+        )
+
+        lint_before = subprocess.run(
+            [sys.executable, "scripts/wiki_lint.py", str(vault), "--fail-on", "p1"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if lint_before.returncode == 0 or "source_uuid" not in lint_before.stdout:
+            print(lint_before.stdout)
+            fail("source identity repair setup should fail lint before repair")
+
+        dry_run = subprocess.run(
+            [sys.executable, "scripts/wiki_repair_source_identity.py", str(vault), "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if dry_run.returncode != 0:
+            print(dry_run.stdout)
+            fail("source identity repair dry-run failed")
+        dry_report = json.loads(dry_run.stdout)
+        if dry_report.get("registry_rows_changed") != 1:
+            print(dry_run.stdout)
+            fail("source identity repair dry-run did not detect the legacy registry row")
+        if json.loads(read(registry_path).splitlines()[0]).get("source_uuid") != legacy_uuid:
+            fail("source identity repair dry-run modified the registry")
+
+        repair = subprocess.run(
+            [sys.executable, "scripts/wiki_repair_source_identity.py", str(vault), "--write", "--format", "json"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if repair.returncode != 0:
+            print(repair.stdout)
+            fail("source identity repair write failed")
+
+        repaired_registry = json.loads(read(registry_path).splitlines()[0])
+        if repaired_registry.get("source_uuid") != expected_uuid:
+            print(repaired_registry)
+            fail("source identity repair did not update the source registry")
+
+        repaired_claims = [json.loads(line) for line in read(claims_path).splitlines() if line.strip()]
+        if any(claim.get("source_uuid") != expected_uuid for claim in repaired_claims):
+            print(repaired_claims)
+            fail("source identity repair did not update claim source_uuid values")
+
+        science_rows = [json.loads(line) for line in read(vault / "_state" / "science-review-queue.jsonl").splitlines() if line.strip()]
+        desktop_registry = [json.loads(line) for line in read(vault / "_state" / "desktop-source-registry.jsonl").splitlines() if line.strip()]
+        desktop_artifacts = [json.loads(line) for line in read(vault / "_state" / "desktop-artifacts.jsonl").splitlines() if line.strip()]
+        desktop_plan = json.loads(read(vault / "_state" / "desktop-ingest-plan.json"))
+        if science_rows[0].get("source_uuid") != expected_uuid:
+            print(science_rows)
+            fail("source identity repair did not update science review source_uuid values")
+        if desktop_registry[0].get("sourceUuid") != expected_uuid or desktop_artifacts[0].get("sourceUuid") != expected_uuid:
+            print(desktop_registry)
+            print(desktop_artifacts)
+            fail("source identity repair did not update desktop JSONL state")
+        if desktop_plan["entries"][0].get("sourceUuid") != expected_uuid:
+            print(desktop_plan)
+            fail("source identity repair did not update desktop ingest plan state")
+
+        lint_after = subprocess.run(
+            [sys.executable, "scripts/wiki_lint.py", str(vault), "--fail-on", "p1"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if lint_after.returncode != 0:
+            print(lint_after.stdout)
+            fail("source identity repair did not clear lint P1 findings")
+
+
 def check_raw_support_index_skipped() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp) / "vault"
@@ -3287,6 +3407,7 @@ def main() -> None:
     check_source_discovery_arxiv_filename()
     check_lint_warns_on_whitespace_path()
     check_source_uuid_stable_contract()
+    check_source_identity_repair()
     check_raw_support_index_skipped()
     check_source_discovery_nested_raw_layout()
     check_source_discovery_skips_local_page_headings()
