@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Batch-convert a directory of PDFs to Markdown through the cloud parser."""
+"""Batch-convert a directory of PDFs to Markdown."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from argparse import Namespace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from pdf_to_markdown import DEFAULT_API_URL, DEFAULT_TOKEN_ENV, convert
+from pdf_to_markdown import DEFAULT_API_URL, DEFAULT_TOKEN_ENV, convert, convert_local_text
 
 
 LOG_FIELDS = ["timestamp_utc", "status", "input", "output", "message"]
@@ -41,6 +41,7 @@ def convert_one(args: argparse.Namespace, input_path: Path, output_dir: Path) ->
     convert_args = Namespace(
         input=input_path,
         output=output_dir,
+        parser=args.parser,
         api_url=args.api_url,
         token_env=args.token_env,
         file_type=0,
@@ -54,6 +55,8 @@ def convert_one(args: argparse.Namespace, input_path: Path, output_dir: Path) ->
         download_images=args.download_images,
         dry_run=False,
     )
+    if args.parser in {"auto", "local-text"}:
+        return convert_local_text(convert_args)
     return convert(convert_args)
 
 
@@ -62,6 +65,12 @@ def main() -> int:
     parser.add_argument("input_dir", type=Path, help="Directory containing PDF files.")
     parser.add_argument("--output-root", type=Path, help="Directory for <pdf-stem>_markdown outputs.")
     parser.add_argument("--pattern", default="*.pdf", help="Input glob pattern, relative to input_dir.")
+    parser.add_argument(
+        "--parser",
+        choices=["auto", "local-text", "layout-api"],
+        default="auto",
+        help="Parser backend. auto and local-text use local PDF text extraction; layout-api uses the configured API.",
+    )
     parser.add_argument("--api-url", default=os.environ.get("OPEN_LLM_WIKI_LAYOUT_API_URL", DEFAULT_API_URL))
     parser.add_argument("--token-env", default=DEFAULT_TOKEN_ENV)
     parser.add_argument("--timeout", type=int, default=300)

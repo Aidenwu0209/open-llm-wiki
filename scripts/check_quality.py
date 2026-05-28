@@ -916,6 +916,31 @@ def check_pdf_to_markdown_help() -> None:
         fail(f"pdf_to_markdown.py --help missing expected guidance: {missing}")
 
 
+def check_pdf_corpus_to_markdown_help() -> None:
+    result = subprocess.run(
+        [sys.executable, "scripts/pdf_corpus_to_markdown.py", "--help"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if result.returncode != 0:
+        print(result.stdout)
+        fail("pdf_corpus_to_markdown.py --help failed")
+    required = [
+        "--parser",
+        "auto",
+        "local-text",
+        "layout-api",
+        "local PDF text",
+        "extraction",
+    ]
+    missing = [item for item in required if item not in result.stdout]
+    if missing:
+        print(result.stdout)
+        fail(f"pdf_corpus_to_markdown.py --help missing expected local parser guidance: {missing}")
+
+
 def run_runtime_checks() -> None:
     commands = [
         [sys.executable, "scripts/wiki_lint.py", "examples/minimal-vault", "--fail-on", "p1"],
@@ -1240,6 +1265,8 @@ def check_pdf_corpus_to_markdown_progress_log() -> None:
                     str(input_dir),
                     "--output-root",
                     str(output_root),
+                    "--parser",
+                    "layout-api",
                     "--api-url",
                     f"http://127.0.0.1:{server.server_address[1]}/layout",
                     "--retries",
@@ -1281,6 +1308,52 @@ def check_pdf_corpus_to_markdown_progress_log() -> None:
     finally:
         thread.join(timeout=5)
         server.server_close()
+
+
+def check_pdf_corpus_to_markdown_defaults_local() -> None:
+    try:
+        from pypdf import PdfWriter
+    except ImportError as exc:
+        fail(f"pypdf missing for local corpus parser check: {exc}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        input_dir = root / "pdfs"
+        output_root = root / "raw"
+        input_dir.mkdir()
+        writer = PdfWriter()
+        writer.add_blank_page(width=72, height=72)
+        with (input_dir / "blank.pdf").open("wb") as handle:
+            writer.write(handle)
+        env = os.environ.copy()
+        env.pop("OPEN_LLM_WIKI_LAYOUT_TOKEN", None)
+        env.pop("AI_STUDIO_LAYOUT_TOKEN", None)
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/pdf_corpus_to_markdown.py",
+                str(input_dir),
+                "--output-root",
+                str(output_root),
+                "--no-download-images",
+            ],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode != 0:
+            print(result.stdout)
+            fail("corpus converter default parser should run locally without an API token")
+        manifest = output_root / "blank_markdown" / "manifest.json"
+        if not manifest.exists():
+            print(result.stdout)
+            fail("corpus converter default parser did not write a manifest")
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        if data.get("parser") != "local-text":
+            print(json.dumps(data, indent=2))
+            fail("corpus converter default parser did not use local-text")
 
 
 def check_writeback_semantic_qa_gate() -> None:
@@ -3394,10 +3467,12 @@ def main() -> None:
     check_ingest_corpus_help()
     check_ingest_corpus_boundary_usage()
     check_pdf_to_markdown_help()
+    check_pdf_corpus_to_markdown_help()
     run_runtime_checks()
     check_pdf_to_markdown_rejects_remote_plain_http_api_url()
     check_pdf_to_markdown_http_errors()
     check_pdf_corpus_to_markdown_progress_log()
+    check_pdf_corpus_to_markdown_defaults_local()
     check_writeback_semantic_qa_gate()
     check_safety_boundaries()
     check_archive_extraction_safety()
