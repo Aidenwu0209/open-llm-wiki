@@ -40,6 +40,24 @@ def append_section(original: str, query: str, body: str, timestamp: str) -> str:
     return original.rstrip() + section
 
 
+def title_from_stem(stem: str) -> str:
+    return " ".join(part.capitalize() for part in re.split(r"[-_\s]+", stem) if part) or stem
+
+
+def new_concept_page(target: Path, timestamp: str) -> str:
+    date = timestamp[:10]
+    title = title_from_stem(target.stem)
+    return (
+        "---\n"
+        f"id: {target.stem}\n"
+        f'title: "{title}"\n'
+        f"created: {date}\n"
+        f"updated: {date}\n"
+        "---\n\n"
+        f"# {title}\n"
+    )
+
+
 def make_diff(path: Path, before: str, after: str) -> str:
     return "".join(
         difflib.unified_diff(
@@ -117,8 +135,9 @@ def main() -> int:
     vault = args.vault.resolve()
     target = ensure_within(vault / args.target, vault, "target must stay inside the vault")
     ensure_within(target, vault / "concepts", "writeback target must be under concepts/")
-    if not target.exists():
-        raise SystemExit(f"target does not exist: {target}")
+    target_exists = target.exists()
+    if not target_exists and target.suffix != ".md":
+        raise SystemExit("new writeback target must be a Markdown file under concepts/")
 
     if args.body_file:
         body = read_text(args.body_file)
@@ -129,8 +148,9 @@ def main() -> int:
     require_source_citation(body, vault)
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    before = read_text(target)
-    after = append_section(before, args.query, body, timestamp)
+    before = read_text(target) if target_exists else ""
+    base = before if target_exists else new_concept_page(target, timestamp)
+    after = append_section(base, args.query, body, timestamp)
     relative = rel(target, vault)
     diff = make_diff(Path(relative), before, after)
     semantic_status = latest_semantic_qa_status(vault)
