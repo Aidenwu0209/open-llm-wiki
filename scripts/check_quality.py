@@ -502,6 +502,12 @@ def check_graph_export_layer() -> None:
         canvas = json.loads(read(vault / "canvas" / "wiki-graph.canvas"))
         if not canvas.get("nodes") or not canvas.get("edges"):
             fail("Obsidian Canvas export did not contain nodes and edges")
+        if not any(node.get("color") for node in canvas.get("nodes", [])):
+            fail("Obsidian Canvas export did not style nodes by evidence graph type")
+        if not any(edge.get("color") for edge in canvas.get("edges", [])):
+            fail("Obsidian Canvas export did not style edges by relationship type")
+        if all((node.get("x", 0) % 380 == 0 and node.get("y", 0) % 190 == 0) for node in canvas.get("nodes", [])):
+            fail("Obsidian Canvas export still uses rigid type columns instead of an Obsidian-like graph layout")
 
         lint_result = subprocess.run(
             [sys.executable, "scripts/wiki_lint.py", str(vault), "--graph", "--fail-on", "p1"],

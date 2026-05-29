@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import shutil
 from collections import Counter, defaultdict, deque
@@ -50,6 +51,29 @@ EDGE_TYPES = [
 ]
 GRAPH_SCHEMA_SOURCE = Path(__file__).resolve().parents[1] / "graph" / "graph.schema.json"
 SOURCE_OR_CONCEPT_FOLDERS = ("sources", "drafts", "concepts")
+CANVAS_NODE_COLORS = {
+    "source": "#fb923c",
+    "draft": "#fbbf24",
+    "concept": "#c084fc",
+    "claim": "#60a5fa",
+    "metric": "#38bdf8",
+    "qa-report": "#4ade80",
+    "contradiction": "#f87171",
+    "science-review": "#f97316",
+    "raw": "#94a3b8",
+    "queue-task": "#2dd4bf",
+}
+CANVAS_EDGE_COLORS = {
+    "cites": "#64748b",
+    "derived-from": "#475569",
+    "supports": "#2563eb",
+    "contradicts": "#ef4444",
+    "needs-review": "#f97316",
+    "reviewed-by": "#22c55e",
+    "updates": "#8b5cf6",
+    "related-to": "#94a3b8",
+}
+CANVAS_GOLDEN_ANGLE = math.pi * (3 - math.sqrt(5))
 
 
 def stable_edge_id(source: str, target: str, edge_type: str, label: str = "") -> str:
@@ -768,50 +792,219 @@ def render_report(graph: dict[str, Any], output_path: Path | None = None) -> str
     return "\n".join(lines) + "\n"
 
 
-def to_canvas(graph: dict[str, Any]) -> dict[str, Any]:
-    type_columns = {node_type: index for index, node_type in enumerate(NODE_TYPES)}
-    row_counts: Counter[str] = Counter()
-    canvas_nodes: list[dict[str, Any]] = []
-    for node in graph["nodes"]:
-        column = type_columns.get(node["type"], 0)
-        row = row_counts[node["type"]]
-        row_counts[node["type"]] += 1
-        x = column * 380
-        y = row * 190
-        if node.get("path") and str(node["path"]).endswith(".md"):
-            canvas_node = {
-                "id": node["id"],
-                "type": "file",
-                "file": node["path"],
-                "x": x,
-                "y": y,
-                "width": 320,
-                "height": 160,
-            }
-        else:
-            text = f"**{node['label']}**\n\nType: `{node['type']}`"
-            if node.get("summary"):
-                text += f"\n\n{node['summary']}"
-            canvas_node = {
-                "id": node["id"],
-                "type": "text",
-                "text": text,
-                "x": x,
-                "y": y,
-                "width": 320,
-                "height": 160,
-            }
-        canvas_nodes.append(canvas_node)
+def canvas_degrees(edges: Iterable[dict[str, Any]]) -> Counter[str]:
+    degree: Counter[str] = Counter()
+    for edge in edges:
+        degree[str(edge["source"])] += 1
+        degree[str(edge["target"])] += 1
+    return degree
 
-    canvas_edges = [
-        {
+
+def canvas_display_nodes(graph: dict[str, Any], degree: Counter[str]) -> tuple[list[dict[str, Any]], int]:
+    nodes: list[dict[str, Any]] = []
+    hidden_isolated_raw = 0
+    for node in graph["nodes"]:
+        if node["type"] == "raw":
+            raw_name = Path(str(node.get("path") or node.get("label") or "")).name
+            if raw_name.startswith("."):
+                continue
+            if degree[node["id"]] == 0:
+                hidden_isolated_raw += 1
+                continue
+        nodes.append(node)
+    if hidden_isolated_raw:
+        nodes.append(
+            {
+                "id": "canvas:unlinked-raw-summary",
+                "type": "raw",
+                "label": f"{hidden_isolated_raw} unlinked raw files",
+                "path": "raw/",
+                "summary": "Unlinked raw files are hidden from this Canvas view to keep the evidence graph readable.",
+                "tags": [],
+                "status": "hidden-from-canvas",
+                "metadata": {"hidden_isolated_raw": hidden_isolated_raw},
+            }
+        )
+    return nodes, hidden_isolated_raw
+
+
+def canvas_node_sort_key(node: dict[str, Any], degree: Counter[str]) -> tuple[int, int, str, str]:
+    try:
+        type_rank = NODE_TYPES.index(node["type"])
+    except ValueError:
+        type_rank = len(NODE_TYPES)
+    return (-degree[node["id"]], type_rank, str(node.get("label") or ""), node["id"])
+
+
+def canvas_initial_positions(nodes: list[dict[str, Any]], degree: Counter[str]) -> dict[str, tuple[float, float]]:
+    if not nodes:
+        return {}
+    if len(nodes) == 1:
+        return {nodes[0]["id"]: (0.0, 0.0)}
+
+    sorted_nodes = sorted(nodes, key=lambda node: canvas_node_sort_key(node, degree))
+    spread = max(460.0, math.sqrt(len(sorted_nodes)) * 170.0)
+    positions: dict[str, tuple[float, float]] = {}
+    for index, node in enumerate(sorted_nodes):
+        angle = index * CANVAS_GOLDEN_ANGLE
+        radius = spread * math.sqrt((index + 0.5) / len(sorted_nodes))
+        if degree[node["id"]] == 0:
+            radius = spread * 1.15
+        positions[node["id"]] = (math.cos(angle) * radius, math.sin(angle) * radius)
+    return positions
+
+
+def canvas_layout(nodes: list[dict[str, Any]], edges: list[dict[str, Any]], degree: Counter[str]) -> dict[str, tuple[float, float]]:
+    positions = canvas_initial_positions(nodes, degree)
+    node_ids = [node["id"] for node in nodes]
+    visible_ids = set(node_ids)
+    visible_edges = [edge for edge in edges if edge["source"] in visible_ids and edge["target"] in visible_ids]
+    if len(nodes) <= 1:
+        return positions
+    if len(nodes) > 650:
+        return positions
+
+    area = max(1, len(nodes)) * 160_000.0
+    ideal_distance = math.sqrt(area / len(nodes))
+    temperature = max(120.0, math.sqrt(len(nodes)) * 45.0)
+    iterations = 120 if len(nodes) <= 120 else 80 if len(nodes) <= 300 else 45
+    max_weight = max((float(edge.get("weight") or 1.0) for edge in visible_edges), default=1.0)
+
+    for _ in range(iterations):
+        displacement: dict[str, list[float]] = {
+            node_id: [-positions[node_id][0] * 0.006, -positions[node_id][1] * 0.006]
+            for node_id in node_ids
+        }
+        for index, source in enumerate(node_ids):
+            source_x, source_y = positions[source]
+            for target in node_ids[index + 1 :]:
+                target_x, target_y = positions[target]
+                dx = source_x - target_x
+                dy = source_y - target_y
+                distance = max(math.hypot(dx, dy), 0.01)
+                force = ideal_distance * ideal_distance / distance
+                fx = dx / distance * force
+                fy = dy / distance * force
+                displacement[source][0] += fx
+                displacement[source][1] += fy
+                displacement[target][0] -= fx
+                displacement[target][1] -= fy
+
+        for edge in visible_edges:
+            source = edge["source"]
+            target = edge["target"]
+            source_x, source_y = positions[source]
+            target_x, target_y = positions[target]
+            dx = source_x - target_x
+            dy = source_y - target_y
+            distance = max(math.hypot(dx, dy), 0.01)
+            weight = max(0.2, min(2.2, float(edge.get("weight") or 1.0) / max_weight + 0.35))
+            force = distance * distance / ideal_distance * weight
+            fx = dx / distance * force
+            fy = dy / distance * force
+            displacement[source][0] -= fx
+            displacement[source][1] -= fy
+            displacement[target][0] += fx
+            displacement[target][1] += fy
+
+        for node_id in node_ids:
+            dx, dy = displacement[node_id]
+            length = max(math.hypot(dx, dy), 0.01)
+            step = min(length, temperature)
+            x, y = positions[node_id]
+            positions[node_id] = (x + dx / length * step, y + dy / length * step)
+        temperature *= 0.92
+
+    return positions
+
+
+def canvas_node_dimensions(node: dict[str, Any], degree: int, max_degree: int) -> tuple[int, int]:
+    ratio = math.sqrt(degree / max(max_degree, 1)) if degree else 0.0
+    if node.get("path") and str(node["path"]).endswith(".md"):
+        return int(240 + ratio * 70), int(112 + ratio * 34)
+    if node["type"] in {"claim", "metric", "science-review", "contradiction"}:
+        return int(220 + ratio * 64), int(92 + ratio * 34)
+    return int(210 + ratio * 58), int(86 + ratio * 28)
+
+
+def canvas_node_text(node: dict[str, Any]) -> str:
+    lines = [f"**{node['label']}**", "", f"Type: `{node['type']}`"]
+    if node.get("status"):
+        lines.append(f"Status: `{node['status']}`")
+    if node.get("path"):
+        lines.append(f"Path: `{node['path']}`")
+    if node.get("summary"):
+        lines.extend(["", brief(str(node["summary"]), 120)])
+    return "\n".join(lines)
+
+
+def canvas_side_between(source: tuple[float, float], target: tuple[float, float]) -> tuple[str, str]:
+    dx = target[0] - source[0]
+    dy = target[1] - source[1]
+    if abs(dx) >= abs(dy):
+        return ("right", "left") if dx >= 0 else ("left", "right")
+    return ("bottom", "top") if dy >= 0 else ("top", "bottom")
+
+
+def canvas_edge_label(edge: dict[str, Any]) -> str:
+    if edge["type"] in {"contradicts", "needs-review"}:
+        return edge["type"]
+    return ""
+
+
+def to_canvas(graph: dict[str, Any]) -> dict[str, Any]:
+    degree = canvas_degrees(graph["edges"])
+    display_nodes, _ = canvas_display_nodes(graph, degree)
+    display_ids = {node["id"] for node in display_nodes}
+    display_edges = [edge for edge in graph["edges"] if edge["source"] in display_ids and edge["target"] in display_ids]
+    positions = canvas_layout(display_nodes, display_edges, degree)
+    max_degree = max((degree[node["id"]] for node in display_nodes), default=1)
+    dimensions = {
+        node["id"]: canvas_node_dimensions(node, degree[node["id"]], max_degree)
+        for node in display_nodes
+    }
+
+    min_left = min((positions[node["id"]][0] - dimensions[node["id"]][0] / 2 for node in display_nodes), default=0)
+    min_top = min((positions[node["id"]][1] - dimensions[node["id"]][1] / 2 for node in display_nodes), default=0)
+    shift_x = 96 - min_left if min_left < 96 else 0
+    shift_y = 96 - min_top if min_top < 96 else 0
+
+    canvas_nodes: list[dict[str, Any]] = []
+    for node in display_nodes:
+        center_x, center_y = positions[node["id"]]
+        width, height = dimensions[node["id"]]
+        base = {
+            "id": node["id"],
+            "x": int(round(center_x - width / 2 + shift_x)),
+            "y": int(round(center_y - height / 2 + shift_y)),
+            "width": width,
+            "height": height,
+            "color": CANVAS_NODE_COLORS.get(node["type"], "#94a3b8"),
+        }
+        if node.get("path") and str(node["path"]).endswith(".md"):
+            canvas_nodes.append({**base, "type": "file", "file": node["path"]})
+        else:
+            canvas_nodes.append({**base, "type": "text", "text": canvas_node_text(node)})
+
+    canvas_edges: list[dict[str, Any]] = []
+    for edge in display_edges:
+        source_position = positions.get(edge["source"])
+        target_position = positions.get(edge["target"])
+        if not source_position or not target_position:
+            continue
+        from_side, to_side = canvas_side_between(source_position, target_position)
+        canvas_edge = {
             "id": edge["id"],
             "fromNode": edge["source"],
+            "fromSide": from_side,
             "toNode": edge["target"],
-            "label": edge["type"],
+            "toSide": to_side,
+            "color": CANVAS_EDGE_COLORS.get(edge["type"], "#94a3b8"),
         }
-        for edge in graph["edges"]
-    ]
+        label = canvas_edge_label(edge)
+        if label:
+            canvas_edge["label"] = label
+        canvas_edges.append(canvas_edge)
     return {"nodes": canvas_nodes, "edges": canvas_edges}
 
 
